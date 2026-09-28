@@ -1,0 +1,7 @@
+/node_modules/
+/dist/
+/src-tauri/target/
+/src-tauri/gen/
+.DS_Store
+# The global gitignore skips mise.toml; this project pins its tools there.
+!mise.toml
