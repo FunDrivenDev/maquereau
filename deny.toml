@@ -1,0 +1,9 @@
+# cargo deny: known vulnerabilities, and crates from anywhere but crates.io.
+
+[advisories]
+# The Linux GTK stack Tauri depends on is unmaintained upstream; only flag our own crates.
+unmaintained = "workspace"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,36 @@
+# Monthly, grouped updates keep the pinned actions and the packages current without a
+# pull request a day. New versions wait a week, so a compromised release is usually
+# caught before it lands here. The crates and the npm packages share one group, so the
+# tauri crates and the @tauri-apps packages move to a new release together.
+
+version: 2
+
+multi-ecosystem-groups:
+  packages:
+    schedule:
+      interval: monthly
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    patterns: ["*"]
+    multi-ecosystem-group: packages
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: deno
+    directory: /
+    patterns: ["*"]
+    multi-ecosystem-group: packages
+    cooldown:
+      default-days: 7

@@ -1,0 +1,4 @@
+# Markdown lint (rumdl). Prose is written one paragraph per line.
+[global]
+disable = ["MD013"]
+exclude = ["node_modules", "dist", "src-tauri/target"]

@@ -1,0 +1,73 @@
+# Checks a pull request, and main after each push, on Linux only: `just ci` builds for
+# Linux and lints the macOS code through its Rust target; `just audit` runs beside it.
+# `just act` runs this workflow locally, in Docker.
+#
+# The Rust cache follows GitHub's cache scopes: a run restores its own branch's newest
+# entry first, then main's, so a new pull request starts from main's cache and its later
+# commits from its own. A run saves a new entry whenever the lockfile or toolchain moved.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A new push to a pull request supersedes the previous run; runs on main always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the WebKitGTK stack Tauri builds against on Linux, and clang
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Install the dependencies from the lockfiles
+        run: just deps frozen
+
+      - name: Check, build for Linux, lint for macOS
+        run: just ci
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # gitleaks reads the whole history.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+
+      - name: Install the dependencies from the lockfiles
+        run: just deps frozen
+
+      - name: Audit secrets, personal data, dependencies and workflows
+        run: just audit
+        env:
+          # Lets zizmor check the pinned actions online.
+          GH_TOKEN: ${{ github.token }}
