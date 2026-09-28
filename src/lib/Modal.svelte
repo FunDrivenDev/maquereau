@@ -2,7 +2,12 @@
   import type { Snippet } from "svelte";
 
   // A centred dialog over a dimmed window; Escape or a click outside closes it.
-  let { title, onClose, children }: { title: string; onClose: () => void; children: Snippet } = $props();
+  let { title, wide = false, onClose, children }: {
+    title: string;
+    wide?: boolean;
+    onClose: () => void;
+    children: Snippet;
+  } = $props();
 
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "Escape") {
@@ -18,7 +23,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={onClose}>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="modal" role="dialog" tabindex="-1" aria-label={title} onclick={(e) => e.stopPropagation()}>
+  <div class="modal" class:wide role="dialog" tabindex="-1" aria-label={title} onclick={(e) => e.stopPropagation()}>
     <h3>{title}</h3>
     {@render children()}
   </div>
@@ -45,6 +50,10 @@
     border: 1px solid var(--surface0);
     background: var(--base);
     box-shadow: var(--shadow);
+  }
+
+  .modal.wide {
+    width: min(760px, 94vw);
   }
 
   h3 {

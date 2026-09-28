@@ -1,20 +1,20 @@
 <script lang="ts">
   import * as api from "./api";
-  import type { Item, Match } from "./api";
+  import { type Match, slotLabel, type Topic } from "./api";
   import { type Command, glyph } from "./commands";
   import Highlight from "./Highlight.svelte";
   import { reveal } from "./scroll";
 
-  // Fuzzy search over the items; a query starting with `>` searches the commands instead.
+  // Fuzzy search over the topics; a query starting with `>` searches the commands instead.
   let { items, commands, onOpen, onClose }: {
-    items: Item[];
+    items: Topic[];
     commands: Command[];
     onOpen: (id: number) => void;
     onClose: () => void;
   } = $props();
 
   type Row =
-    | { kind: "item"; item: Item; indices: number[] }
+    | { kind: "item"; item: Topic; indices: number[] }
     | { kind: "command"; command: Command; indices: number[] };
 
   let query = $state("");
@@ -46,7 +46,7 @@
     active = 0;
     const mine = ++sequence;
     const timer = setTimeout(() => {
-      const search = commandsMode ? api.fuzzy(q.slice(1), labels) : api.searchItems(q);
+      const search = commandsMode ? api.fuzzy(q.slice(1), labels) : api.searchTopics(q);
       search.then((result) => {
         if (mine === sequence) matches = result;
       });
@@ -113,6 +113,7 @@
               <span class="keys">{#each row.command.keys as key (key)}<kbd>{glyph(key)}</kbd>{/each}</span>
             {:else}
               <span class="title"><Highlight text={row.item.title} indices={row.indices} /></span>
+              <span class="keys">{slotLabel(row.item.slot)} · {row.item.stage}</span>
             {/if}
           </button>
         </li>

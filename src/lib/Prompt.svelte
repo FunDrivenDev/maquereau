@@ -3,9 +3,14 @@
   import Modal from "./Modal.svelte";
 
   // Asks for one line of text: Enter submits, Escape cancels.
-  let { title, value = "", action, onSubmit, onClose }: {
+  let { title, value = "", placeholder = "", secret = false, allowEmpty = false, action, onSubmit, onClose }: {
     title: string;
     value?: string;
+    placeholder?: string;
+    /** Hides what is typed, for a key. */
+    secret?: boolean;
+    /** Lets an empty line through, to clear a value. */
+    allowEmpty?: boolean;
     action: string;
     onSubmit: (text: string) => void;
     onClose: () => void;
@@ -20,7 +25,7 @@
   });
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === "Enter" && text.trim()) {
+    if (event.key === "Enter" && (text.trim() || allowEmpty)) {
       event.preventDefault();
       onSubmit(text.trim());
     }
@@ -28,7 +33,15 @@
 </script>
 
 <Modal {title} {onClose}>
-  <input bind:this={input} bind:value={text} onkeydown={onKeydown} spellcheck="false" autocomplete="off" />
+  <input
+    bind:this={input}
+    bind:value={text}
+    onkeydown={onKeydown}
+    type={secret ? "password" : "text"}
+    {placeholder}
+    spellcheck="false"
+    autocomplete="off"
+  />
   <p><kbd>↵</kbd> {action} · <kbd>esc</kbd> cancel</p>
 </Modal>
 

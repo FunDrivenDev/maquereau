@@ -5,17 +5,25 @@
 
   // Every setting of the app, opened with ⌘,. A new setting needs its field in
   // src-tauri/src/settings.rs and its entry in `fields` below; nothing else configures the app.
-  let { settings, onChange, onClose }: {
+  // The Linear API key is kept in the keychain, not in `settings`: its field only asks for it.
+  let { settings, hasLinearKey, onChange, onEdit, onLinearKey, onClose }: {
     settings: Settings;
+    hasLinearKey: boolean;
     onChange: (settings: Settings) => void;
+    /** Asks for a new value of a text setting. */
+    onEdit: (key: keyof Settings, label: string) => void;
+    onLinearKey: () => void;
     onClose: () => void;
   } = $props();
 
   type Field =
-    & { key: keyof Settings; label: string; description: string }
+    & { key: keyof Settings | "linear_key"; label: string; description: string }
     & (
       | { kind: "choice"; options: { value: string; label: string }[] }
       | { kind: "number"; min: number; max: number; step: number }
+      | { kind: "toggle" }
+      | { kind: "text" }
+      | { kind: "action"; run: () => void }
     );
 
   const fields: Field[] = [
@@ -29,6 +37,68 @@
         { value: "light", label: "Light" },
         { value: "dark", label: "Dark" },
       ],
+    },
+    {
+      key: "linear_key",
+      label: "Linear API key",
+      description: "Reads your issues and initiatives. Create one in Linear › Settings › Security & access. Kept in the keychain.",
+      kind: "action",
+      run: () => onLinearKey(),
+    },
+    {
+      key: "terminal",
+      label: "Terminal",
+      description: "Where a topic's herdr session opens.",
+      kind: "choice",
+      options: [
+        { value: "ghostty", label: "Ghostty" },
+        { value: "terminal", label: "Terminal" },
+      ],
+    },
+    {
+      key: "folder",
+      label: "Folder of new topics",
+      description: "Where a new topic's session starts; each topic can change it (c).",
+      kind: "text",
+    },
+    {
+      key: "refresh_minutes",
+      label: "Linear and GitHub refresh",
+      description: "Minutes between two reads of the linked issues and pull requests.",
+      kind: "number",
+      min: 1,
+      max: 60,
+      step: 1,
+    },
+    {
+      key: "session_seconds",
+      label: "Session refresh",
+      description: "Seconds between two reads of the herdr sessions.",
+      kind: "number",
+      min: 5,
+      max: 120,
+      step: 5,
+    },
+    {
+      key: "notify_sessions",
+      label: "Notify on sessions",
+      description: "When an agent of a topic's session needs an answer or has finished.",
+      kind: "toggle",
+    },
+    {
+      key: "notify_comments",
+      label: "Notify on comments",
+      description: "When someone else comments on a linked issue or pull request.",
+      kind: "toggle",
+    },
+    {
+      key: "stats_days",
+      label: "Flow stats window",
+      description: "How many days of done topics the flow stats count.",
+      kind: "number",
+      min: 7,
+      max: 365,
+      step: 7,
     },
     {
       key: "search_limit",
@@ -66,22 +136,34 @@
   });
 
   function display(field: Field): string {
+    if (field.key === "linear_key") return hasLinearKey ? "Set" : "Not set";
     const value = settings[field.key];
     if (field.kind === "choice") return field.options.find((o) => o.value === value)?.label ?? String(value);
+    if (field.kind === "toggle") return value ? "On" : "Off";
     return String(value);
   }
 
   /** Moves the field's value one step: to the next option, or by one `step`. */
   function nudge(field: Field | undefined, delta: 1 | -1) {
     if (!field) return;
+    if (field.kind === "action" || field.kind === "text") {
+      if (delta === 1 && field.kind === "action") field.run();
+      else if (delta === 1 && field.key !== "linear_key") onEdit(field.key, field.label);
+      return;
+    }
+    if (field.key === "linear_key") return;
     const value = settings[field.key];
-    let next: string | number;
-    if (field.kind === "choice") {
+    let next: string | number | boolean;
+    if (field.kind === "toggle") {
+      next = !value;
+    } else if (field.kind === "choice") {
       const i = field.options.findIndex((o) => o.value === value);
       const n = field.options.length;
       next = field.options[(i + delta + n) % n]?.value ?? String(value);
-    } else {
+    } else if (field.kind === "number") {
       next = Math.min(field.max, Math.max(field.min, Number(value) + delta * field.step));
+    } else {
+      return;
     }
     if (next !== value) onChange({ ...settings, [field.key]: next });
   }
@@ -162,7 +244,7 @@
   }
 
   .settings {
-    width: min(620px, 90vw);
+    width: min(680px, 92vw);
     max-height: 76vh;
     display: flex;
     flex-direction: column;

@@ -17,3 +17,11 @@ The front end holds no state of its own: every Rust command returns a `Snapshot`
 - Dependencies come in a week after their release at the earliest: `just deps update` (the tools, the crates and the npm packages at once), or the grouped Dependabot pull request. The tauri crates and the @tauri-apps packages stay on the same minor release.
 - `just check` before every commit; `just act` runs the CI workflow locally when a workflow changes.
 - Work on a branch and merge through a pull request once CI passes.
+
+## Domain
+
+- A **topic** gathers links (Linear issues, pull requests, GitHub issues, Slack threads, URLs) with what lives only here: steps, notes, blocks, rework, an optional Linear initiative, a herdr session and its folder. `Topic` in `src-tauri/src/model.rs`.
+- Four **slots** (`Slot`): Feature, Bug / Run, Exploration, Tooling; at most one `active` topic each. Activating a topic parks the one in its slot (`Model::activation`). The **backlog** is the `queued` topics plus the Linear issues assigned to the user that no open topic links.
+- **Flow times** (`src-tauri/src/flow.rs`): lead time from `created_at`, cycle time from `started_at` (the first activation, kept on reopening), both to `finished_at` or now; blocked time is the sum of the blocks.
+- **Outside sources** are read, never written: herdr (`agent list`) every `session_seconds`, Linear (GraphQL, key in the keychain) and GitHub (`gh`) every `refresh_minutes`. They land in `Live`, saved to `live.json`, and are never part of the undo history. Commands run with the login shell's PATH (`shell.rs`), since a GUI app does not inherit it.
+- Notifications fire on a change between two reads (`live::alerts`), never on the first read after launch.
