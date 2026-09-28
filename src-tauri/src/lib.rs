@@ -28,7 +28,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
-use tauri_plugin_notification::NotificationExt;
 
 use history::History;
 use live::{Issue, Live};
@@ -570,6 +569,7 @@ fn watch(handle: AppHandle) {
     let mut gh_login = String::new();
     let mut last_sessions: Option<Instant> = None;
     let mut last_remote: Option<Instant> = None;
+    let mut first = true;
     loop {
         let (topics, settings, before) = {
             let inner = app.inner.lock().unwrap();
@@ -599,8 +599,9 @@ fn watch(handle: AppHandle) {
             };
             after.sessions = live::read_sessions(&app.shell, &topics);
             last_sessions = Some(Instant::now());
-            // The first read after launch only sets what later reads compare with.
-            let alerts = if before.refreshed_at.is_some() || !before.sessions.is_empty() {
+            // The first read after launch only sets what later reads compare with: live.json
+            // may be days old.
+            let alerts = if !first {
                 live::alerts(
                     &topics,
                     &before,
@@ -611,13 +612,9 @@ fn watch(handle: AppHandle) {
             } else {
                 vec![]
             };
+            first = false;
             for alert in alerts {
-                let _ = handle
-                    .notification()
-                    .builder()
-                    .title(alert.title)
-                    .body(alert.body)
-                    .show();
+                let _ = app.shell.notify(&alert.title, &alert.body);
             }
             let snapshot = {
                 let mut inner = app.inner.lock().unwrap();
@@ -678,7 +675,6 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;

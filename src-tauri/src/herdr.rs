@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::settings::Terminal;
-use crate::shell::{Shell, expand, quote};
+use crate::shell::{Shell, apple_string, expand, quote};
 
 /// What a session's agents are doing. `idle`, `working`, `blocked`, `done` and `unknown`
 /// are herdr's states: `blocked` waits for an answer, `done` has finished unseen.
@@ -85,8 +85,8 @@ pub fn open(shell: &Shell, terminal: Terminal, name: &str, folder: &str) -> Resu
         }
         Terminal::Terminal => {
             let apple = format!(
-                "tell application \"Terminal\"\n  activate\n  do script \"{}\"\nend tell",
-                script.replace('\\', r"\\").replace('"', "\\\"")
+                "tell application \"Terminal\"\n  activate\n  do script {}\nend tell",
+                apple_string(&script)
             );
             shell.run("osascript", &["-e", &apple], None)?;
         }

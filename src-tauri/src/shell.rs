@@ -76,11 +76,27 @@ impl Shell {
             Err(format!("{program}: {message}"))
         }
     }
+
+    /// Shows a macOS notification. Through `osascript`, it needs neither a signed app nor
+    /// the macOS SDK at build time, which the Linux CI lint of the macOS target lacks.
+    pub fn notify(&self, title: &str, body: &str) -> Result<(), String> {
+        let script = format!(
+            "display notification {} with title {}",
+            apple_string(body),
+            apple_string(title)
+        );
+        self.run("osascript", &["-e", &script], None).map(drop)
+    }
 }
 
 /// `text` quoted for a POSIX shell.
 pub fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// `text` as an AppleScript string literal.
+pub fn apple_string(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', r"\\").replace('"', "\\\""))
 }
 
 /// `path` with a leading `~` replaced by the home folder.
@@ -96,6 +112,11 @@ pub fn expand(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quotes_for_applescript() {
+        assert_eq!(apple_string(r#"say "hi" \ bye"#), r#""say \"hi\" \\ bye""#);
+    }
 
     #[test]
     fn quotes_for_the_shell() {
