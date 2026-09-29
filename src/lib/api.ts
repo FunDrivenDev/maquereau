@@ -5,6 +5,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 export type Slot = "feature" | "bug_run" | "exploration" | "tooling";
 export type Stage = "queued" | "active" | "done";
 export type LinkKind = "linear_issue" | "pull_request" | "github_issue" | "slack" | "web";
+/** The type Linear gives every workflow state; `unstarted` reads as ready. */
+export type StateType = "triage" | "backlog" | "unstarted" | "started" | "completed" | "canceled";
 export type Tone = "open" | "progress" | "review" | "attention" | "done" | "closed";
 
 export const slots: { slot: Slot; label: string }[] = [
@@ -116,6 +118,7 @@ export interface Issue {
   title: string;
   url: string;
   state: string;
+  state_type: StateType;
   tone: Tone;
   /** 0 none, 1 urgent … 4 low. */
   priority: number;

@@ -92,6 +92,16 @@
       .slice(0, 30)
       .map((topic): BacklogRow => ({ kind: "topic", key: `t${topic.id}`, topic })),
   ]);
+  const priorityMark = ["·", "‼", "▮▮▮", "▮▮▯", "▮▯▯"];
+  const stateMark: Record<api.StateType, string> = {
+    triage: "◌",
+    backlog: "◌",
+    unstarted: "○",
+    started: "◐",
+    completed: "●",
+    canceled: "⊘",
+  };
+
   /** The backlog's issues as rows, but the sub-issues of a folded one. */
   function issueRows(entries: api.BacklogEntry[], folded: Set<string>): BacklogRow[] {
     const rows: BacklogRow[] = [];
@@ -725,6 +735,12 @@
               <span class="tag">{api.slotLabel(item.topic.slot)}</span>
               <span class="text">{item.topic.title}</span>
             {:else}
+              <span class="priority" data-priority={item.issue.priority} title={api.priorityLabel(item.issue.priority)}>
+                {priorityMark[item.issue.priority] ?? "·"}
+              </span>
+              <span class="progress" data-type={item.issue.state_type} data-tone={item.issue.tone} title={item.issue.state}>
+                {stateMark[item.issue.state_type]}
+              </span>
               <span class="fold" style:--depth={item.depth}>{item.children ? item.folded ? "▸" : "▾" : ""}</span>
               <span class="tag">{item.issue.key}</span>
               <span class="text" class:done={item.issue.tone === "done"}>{item.issue.title}</span>
@@ -929,10 +945,53 @@
 
   .fold {
     flex: none;
-    width: calc(var(--depth) * 14px + 10px);
+    width: calc(var(--depth) * 16px + 10px);
     text-align: right;
-    font-size: 10px;
+    font-size: 11px;
+    color: var(--subtext);
+  }
+
+  .priority,
+  .progress {
+    flex: none;
+    width: 20px;
+    font-size: 9px;
+    letter-spacing: -1px;
+    text-align: center;
     color: var(--overlay0);
+  }
+
+  .progress {
+    width: 14px;
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+
+  .priority[data-priority="1"] {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--red);
+  }
+
+  .priority[data-priority="2"] {
+    color: var(--yellow);
+  }
+
+  .progress[data-type="backlog"],
+  .progress[data-type="triage"] {
+    color: var(--text);
+  }
+
+  .progress[data-tone="progress"] {
+    color: var(--blue);
+  }
+
+  .progress[data-tone="review"] {
+    color: var(--yellow);
+  }
+
+  .progress[data-tone="done"] {
+    color: var(--green);
   }
 
   .text.done {
