@@ -75,7 +75,8 @@ Every tool is pinned in `mise.toml`, and the Justfile is the entry point:
 
 ```sh
 just deps      # install the tools and dependencies; `just deps update` moves them to the newest week-old versions
-just dev       # run with hot reload
+just dev       # run with hot reload, the dev server on a free port so other projects' can run alongside
+just dev-check # check `just dev` would start, without opening the app: the debug build, and the dev server serving the front end
 just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, shell, workflows, spelling), then test
 just act       # run the CI workflow locally, in Docker
 just audit     # secrets and personal data in the history, vulnerable dependencies, unsafe workflows

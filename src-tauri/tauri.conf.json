@@ -4,7 +4,7 @@
   "identifier": "dev.fundrivendev.maquereau",
   "build": {
     "beforeDevCommand": "deno task web:dev",
-    "devUrl": "http://localhost:5174",
+    "devUrl": "http://127.0.0.1:5174",
     "beforeBuildCommand": "deno task web:build",
     "frontendDist": "../dist"
   },
