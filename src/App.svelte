@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
   import * as api from "./lib/api";
   import { type Initiative, type Issue, type Settings, type Slot, slots, type Snapshot, type Topic } from "./lib/api";
   import { applies, type Command } from "./lib/commands";
@@ -18,7 +19,7 @@
   type View = "focus" | "backlog";
   type BacklogRow =
     | { kind: "topic"; key: string; topic: Topic }
-    | { kind: "issue"; key: string; issue: Issue };
+    | { kind: "issue"; key: string; issue: Issue; depth: number; children: number; folded: boolean };
 
   interface Ask {
     title: string;
@@ -40,7 +41,7 @@
     topics: [],
     times: [],
     stats: [],
-    live: { links: {}, assigned: [], initiatives: [], sessions: {}, refreshed_at: null, errors: [] },
+    live: { links: {}, assigned: [], sub_issues: [], initiatives: [], sessions: {}, refreshed_at: null, errors: [] },
     backlog: [],
     settings: {
       theme: "system",
@@ -62,6 +63,8 @@
   let view = $state<View>("focus");
   let slotIndex = $state(0);
   let backlogKey = $state<string | null>(null);
+  /** The keys of the backlog issues whose sub-issues are hidden. */
+  const folded = new SvelteSet<string>();
   /** The detail row the keys act on, or -1 while the list has them. */
   let detailRow = $state(-1);
   let overlay = $state<Overlay | null>(null);
@@ -82,13 +85,39 @@
       .filter((t) => t.stage === "queued")
       .sort((a, b) => slotOrder(a.slot) - slotOrder(b.slot))
       .map((topic): BacklogRow => ({ kind: "topic", key: `t${topic.id}`, topic })),
-    ...data.backlog.map((issue): BacklogRow => ({ kind: "issue", key: `i${issue.key}`, issue })),
+    ...issueRows(data.backlog, folded),
     ...data.topics
       .filter((t) => t.stage === "done")
       .sort((a, b) => (b.finished_at ?? 0) - (a.finished_at ?? 0))
       .slice(0, 30)
       .map((topic): BacklogRow => ({ kind: "topic", key: `t${topic.id}`, topic })),
   ]);
+  /** The backlog's issues as rows, but the sub-issues of a folded one. */
+  function issueRows(entries: api.BacklogEntry[], folded: Set<string>): BacklogRow[] {
+    const rows: BacklogRow[] = [];
+    let hideBelow = Infinity;
+    for (const { issue, depth, children } of entries) {
+      if (depth > hideBelow) continue;
+      const fold = children > 0 && folded.has(issue.key);
+      hideBelow = fold ? depth : Infinity;
+      rows.push({ kind: "issue", key: `i${issue.key}`, issue, depth, children, folded: fold });
+    }
+    return rows;
+  }
+
+  /** The sub-issues right under the backlog's issue `key`. */
+  function subIssues(key: string): Issue[] {
+    const at = data.backlog.findIndex((e) => e.issue.key === key);
+    if (at < 0) return [];
+    const depth = data.backlog[at]!.depth;
+    const out: Issue[] = [];
+    for (const entry of data.backlog.slice(at + 1)) {
+      if (entry.depth <= depth) break;
+      if (entry.depth === depth + 1) out.push(entry.issue);
+    }
+    return out;
+  }
+
   const backlogIndex = $derived(backlogRows.findIndex((r) => r.key === backlogKey));
   const backlogRow = $derived(backlogRows[backlogIndex] ?? null);
 
@@ -398,6 +427,35 @@
 
   const onStep = () => row?.kind === "step";
   const onIssue = () => selectedIssue !== null;
+  const onIssueRow = () => onIssue() && detailRow < 0;
+
+  /** Folds the selected issue's sub-issues, or else selects its parent. */
+  function fold() {
+    if (backlogRow?.kind !== "issue") return;
+    if (backlogRow.children && !backlogRow.folded) return folded.add(backlogRow.issue.key);
+    const parent = backlogRow.issue.parent?.key;
+    if (parent && backlogRows.some((r) => r.key === `i${parent}`)) backlogKey = `i${parent}`;
+  }
+
+  /** Unfolds the selected issue's sub-issues, or else selects the first one. */
+  function unfold() {
+    if (backlogRow?.kind !== "issue" || !backlogRow.children) return;
+    if (backlogRow.folded) return folded.delete(backlogRow.issue.key);
+    backlogKey = backlogRows[backlogIndex + 1]?.key ?? backlogKey;
+  }
+
+  function foldAll() {
+    const parents = data.backlog.filter((e) => e.children > 0 && e.depth === 0).map((e) => e.issue.key);
+    const unfold = parents.length > 0 && parents.every((key) => folded.has(key));
+    if (unfold) return folded.clear();
+    const row = backlogRow;
+    for (const key of parents) folded.add(key);
+    if (row?.kind !== "issue") return;
+    let at = data.backlog.findIndex((e) => e.issue.key === row.issue.key);
+    while (at > 0 && data.backlog[at]!.depth > 0) at--;
+    const top = data.backlog[at];
+    if (top) backlogKey = `i${top.issue.key}`;
+  }
 
   /** Scrolls the issue shown by `pages` of its pane. */
   function scrollIssue(pages: number) {
@@ -454,6 +512,21 @@
     { id: "done-step", label: "Check the next step (or the selected one)", keys: ["x"], run: doneStep },
     { id: "step-up", label: "Move the step up", keys: ["K"], when: onStep, run: () => moveStep(-1) },
     { id: "step-down", label: "Move the step down", keys: ["J"], when: onStep, run: () => moveStep(1) },
+    {
+      id: "fold",
+      label: "Fold the issue's sub-issues, or go to its parent",
+      keys: ["ArrowLeft", "h"],
+      when: onIssueRow,
+      run: fold,
+    },
+    {
+      id: "unfold",
+      label: "Unfold the issue's sub-issues, or go to the first one",
+      keys: ["ArrowRight"],
+      when: onIssueRow,
+      run: unfold,
+    },
+    { id: "fold-all", label: "Fold or unfold every sub-issue", keys: ["z"], when: onIssue, run: foldAll },
     { id: "scroll-down", label: "Scroll the issue down", keys: [" ", "J", "PageDown"], when: onIssue, run: (key) =>
       scrollIssue(key === "J" ? 0.25 : 1) },
     { id: "scroll-up", label: "Scroll the issue up", keys: ["K", "PageUp"], when: onIssue, run: (key) =>
@@ -595,7 +668,10 @@
     <nav data-tauri-drag-region>
       <span class:current={view === "focus"}>Focus</span>
       <span class:current={view === "backlog"}>
-        Backlog <small>{backlogRows.filter((r) => r.kind === "issue" || r.topic.stage === "queued").length}</small>
+        Backlog <small>
+          {data.topics.filter((t) => t.stage === "queued").length +
+          data.backlog.filter((e) => e.issue.tone !== "done" && e.issue.tone !== "closed").length}
+        </small>
       </span>
     </nav>
     <span class="status" data-tauri-drag-region>
@@ -649,8 +725,11 @@
               <span class="tag">{api.slotLabel(item.topic.slot)}</span>
               <span class="text">{item.topic.title}</span>
             {:else}
+              <span class="fold" style:--depth={item.depth}>{item.children ? item.folded ? "▸" : "▾" : ""}</span>
               <span class="tag">{item.issue.key}</span>
-              <span class="text">{item.issue.title}</span>
+              <span class="text" class:done={item.issue.tone === "done"}>{item.issue.title}</span>
+              {#if item.folded}<span class="tag">+{item.children}</span>{/if}
+              {#if !item.issue.mine && item.issue.assignee}<span class="tag">{item.issue.assignee}</span>{/if}
             {/if}
           </button>
         {:else}
@@ -678,7 +757,12 @@
         />
       {:else if selectedIssue}
         {#key selectedIssue.key}
-          <IssueView issue={selectedIssue} now={data.now} bind:pane={issuePane} />
+          <IssueView
+            issue={selectedIssue}
+            subIssues={subIssues(selectedIssue.key)}
+            now={data.now}
+            bind:pane={issuePane}
+          />
         {/key}
       {:else if loaded}
         <div class="blank">
@@ -843,7 +927,22 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .fold {
+    flex: none;
+    width: calc(var(--depth) * 14px + 10px);
+    text-align: right;
+    font-size: 10px;
+    color: var(--overlay0);
+  }
+
+  .text.done {
+    text-decoration: line-through;
+    color: var(--overlay0);
+  }
+
   .text {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

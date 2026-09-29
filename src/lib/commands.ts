@@ -21,6 +21,8 @@ export const applies = (command: Command) => command.when?.() ?? true;
 
 const glyphs: Record<string, string> = {
   ArrowDown: "↓",
+  ArrowLeft: "←",
+  ArrowRight: "→",
   ArrowUp: "↑",
   Backspace: "⌫",
   Enter: "↵",
