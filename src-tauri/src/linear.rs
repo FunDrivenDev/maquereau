@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use crate::live::{Issue, LinkStatus, Tone};
+use crate::live::{Issue, IssueRef, Label, LinkStatus, Tone};
 use crate::model::Initiative;
 use crate::shell::Shell;
 
@@ -42,24 +42,51 @@ pub fn assigned(shell: &Shell, key: &str) -> Result<Vec<Issue>, String> {
     let query = format!(
         "query {{ viewer {{ assignedIssues(first: 100, orderBy: updatedAt, filter: \
          {{ state: {{ type: {{ nin: [\"completed\", \"canceled\"] }} }} }}) \
-         {{ nodes {{ identifier title url priority state {{ name type }} {INITIATIVES} }} }} }} }}"
+         {{ nodes {{ {ISSUE} }} }} }} }}"
     );
     let data = request(shell, key, &query, json!({}))?;
-    let nodes = data["viewer"]["assignedIssues"]["nodes"]
+    Ok(data["viewer"]["assignedIssues"]["nodes"]
         .as_array()
-        .cloned()
-        .unwrap_or_default();
-    Ok(nodes
-        .iter()
-        .map(|n| Issue {
-            key: text(n, "identifier"),
-            title: text(n, "title"),
-            url: text(n, "url"),
-            state: text(&n["state"], "name"),
-            priority: n["priority"].as_f64().unwrap_or_default() as u8,
-            initiatives: initiatives(n),
-        })
+        .into_iter()
+        .flatten()
+        .map(read_listed)
         .collect())
+}
+
+/// What the backlog shows of an issue.
+const ISSUE: &str = "identifier title url priority description estimate dueDate createdAt \
+     updatedAt state { name type } labels(first: 10) { nodes { name color } } \
+     parent { identifier title } project { name initiatives(first: 3) { nodes { id name url } } }";
+
+fn read_listed(node: &Value) -> Issue {
+    Issue {
+        key: text(node, "identifier"),
+        title: text(node, "title"),
+        url: text(node, "url"),
+        state: text(&node["state"], "name"),
+        tone: tone(&node["state"]),
+        priority: node["priority"].as_f64().unwrap_or_default() as u8,
+        initiatives: initiatives(node),
+        description: text(node, "description"),
+        project: node["project"]["name"].as_str().map(str::to_owned),
+        labels: node["labels"]["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|l| Label {
+                name: text(l, "name"),
+                color: text(l, "color"),
+            })
+            .collect(),
+        estimate: node["estimate"].as_f64(),
+        due_date: node["dueDate"].as_str().map(str::to_owned),
+        created_at: text(node, "createdAt"),
+        updated_at: text(node, "updatedAt"),
+        parent: node["parent"].is_object().then(|| IssueRef {
+            key: text(&node["parent"], "identifier"),
+            title: text(&node["parent"], "title"),
+        }),
+    }
 }
 
 /// The state of issue `key` (`BIM-123`).
@@ -87,15 +114,20 @@ pub fn open_initiatives(shell: &Shell, key: &str) -> Result<Vec<Initiative>, Str
     Ok(list)
 }
 
-fn read_issue(issue: &Value) -> LinkStatus {
-    let state = text(&issue["state"], "name");
-    let tone = match issue["state"]["type"].as_str() {
+/// How a Linear `state { name type }` reads.
+fn tone(state: &Value) -> Tone {
+    match state["type"].as_str() {
         Some("completed") => Tone::Done,
         Some("canceled") => Tone::Closed,
-        Some("started") if state.to_lowercase().contains("review") => Tone::Review,
+        Some("started") if text(state, "name").to_lowercase().contains("review") => Tone::Review,
         Some("started") => Tone::Progress,
         _ => Tone::Open,
-    };
+    }
+}
+
+fn read_issue(issue: &Value) -> LinkStatus {
+    let state = text(&issue["state"], "name");
+    let tone = tone(&issue["state"]);
     let others: Vec<&str> = issue["comments"]["nodes"]
         .as_array()
         .into_iter()
@@ -202,5 +234,45 @@ mod tests {
         assert_eq!(status.tone, Tone::Review);
         assert_eq!(status.comments, 1);
         assert_eq!(status.initiatives[0].name, "Reports");
+    }
+
+    #[test]
+    fn reads_a_listed_issue() {
+        let node = json!({
+            "identifier": "BIM-8",
+            "title": "Export CSV",
+            "url": "https://linear.app/ws/issue/BIM-8",
+            "priority": 2,
+            "description": "## Why\n- faster",
+            "estimate": 3,
+            "dueDate": null,
+            "createdAt": "2026-09-01T00:00:00.000Z",
+            "updatedAt": "2026-09-02T00:00:00.000Z",
+            "state": {"name": "In Progress", "type": "started"},
+            "labels": {"nodes": [{"name": "Bug", "color": "#eb5757"}]},
+            "parent": {"identifier": "BIM-7", "title": "Export PDF"},
+            "project": {"name": "Reports", "initiatives": {"nodes": []}}
+        });
+        let issue = read_listed(&node);
+        assert_eq!(issue.tone, Tone::Progress);
+        assert_eq!(issue.priority, 2);
+        assert_eq!(issue.estimate, Some(3.0));
+        assert_eq!(issue.due_date, None);
+        assert_eq!(issue.project.as_deref(), Some("Reports"));
+        assert_eq!(issue.labels[0].name, "Bug");
+        assert_eq!(issue.parent.unwrap().key, "BIM-7");
+        let bare = read_listed(&json!({"identifier": "BIM-9", "parent": null, "project": null}));
+        assert_eq!(bare.parent, None);
+        assert_eq!(bare.project, None);
+    }
+
+    #[test]
+    fn an_issue_saved_before_its_details_still_loads() {
+        let issue: Issue = serde_json::from_value(json!({
+            "key": "BIM-1", "title": "t", "url": "u", "state": "Todo", "priority": 3, "initiatives": []
+        }))
+        .unwrap();
+        assert_eq!(issue.tone, Tone::Open);
+        assert!(issue.description.is_empty());
     }
 }
