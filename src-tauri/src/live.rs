@@ -62,6 +62,7 @@ pub struct Issue {
     pub title: String,
     pub url: String,
     pub state: String,
+    pub state_type: StateType,
     pub tone: Tone,
     /// Linear's priority: 0 none, 1 urgent … 4 low.
     pub priority: u8,
@@ -81,6 +82,20 @@ pub struct Issue {
     pub assignee: Option<String>,
     /// Assigned to Raphaël.
     pub mine: bool,
+}
+
+/// The type Linear gives every workflow state, whatever its name.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StateType {
+    Triage,
+    #[default]
+    Backlog,
+    /// Ready: to do, not started.
+    Unstarted,
+    Started,
+    Completed,
+    Canceled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

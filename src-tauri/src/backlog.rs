@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use crate::live::Issue;
+use crate::live::{Issue, StateType};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Entry {
@@ -14,7 +14,8 @@ pub struct Entry {
 }
 
 /// The issues assigned to Raphaël and their sub-issues, but those `linked` by an open
-/// topic, in preorder: each issue followed by its sub-issues, in the order given. An
+/// topic, in preorder: each issue followed by its sub-issues, and issues side by side in
+/// the order of `rank`, then in the order given. An
 /// assigned issue whose parent is not listed shows at the top; any other sub-issue shows
 /// only under its parent.
 pub fn tree(assigned: &[Issue], sub_issues: &[Issue], linked: &[String]) -> Vec<Entry> {
@@ -24,6 +25,7 @@ pub fn tree(assigned: &[Issue], sub_issues: &[Issue], linked: &[String]) -> Vec<
             pool.push(issue);
         }
     }
+    pool.sort_by_key(|i| rank(i));
     let mut out = Vec::new();
     for root in &pool {
         let assigned = assigned.iter().any(|i| i.key == root.key);
@@ -32,6 +34,23 @@ pub fn tree(assigned: &[Issue], sub_issues: &[Issue], linked: &[String]) -> Vec<
         }
     }
     out
+}
+
+/// Where an issue goes among its siblings: the most urgent first, then in progress, ready,
+/// in the backlog; an issue without priority after the low ones. Done issues go last
+/// whatever their priority, as nothing is left to pull in them.
+fn rank(issue: &Issue) -> (bool, u8, u8) {
+    let priority = match issue.priority {
+        0 => 5,
+        p => p,
+    };
+    let state = match issue.state_type {
+        StateType::Started => 0,
+        StateType::Unstarted => 1,
+        StateType::Triage | StateType::Backlog => 2,
+        StateType::Completed | StateType::Canceled => 3,
+    };
+    (state == 3, priority, state)
 }
 
 /// The key of `issue`'s parent, when it is in `pool`.
@@ -109,6 +128,49 @@ mod tests {
                 ("A1a", 2, 0),
                 ("B", 0, 0),
                 ("C", 0, 0),
+            ]
+        );
+    }
+
+    fn ranked(key: &str, priority: u8, state_type: StateType) -> Issue {
+        Issue {
+            priority,
+            state_type,
+            ..issue(key, None)
+        }
+    }
+
+    #[test]
+    fn the_most_urgent_come_first_then_in_progress_ready_backlog_and_done_last() {
+        let assigned = [
+            ranked("none", 0, StateType::Started),
+            ranked("low", 4, StateType::Started),
+            ranked("high-backlog", 2, StateType::Backlog),
+            ranked("high-ready", 2, StateType::Unstarted),
+            ranked("urgent", 1, StateType::Triage),
+            ranked("high-started", 2, StateType::Started),
+        ];
+        let subs = [
+            Issue {
+                parent: issue("x", Some("urgent")).parent,
+                ..ranked("urgent-done", 1, StateType::Completed)
+            },
+            Issue {
+                parent: issue("x", Some("urgent")).parent,
+                ..ranked("urgent-ready", 3, StateType::Unstarted)
+            },
+        ];
+        assert_eq!(
+            shape(&tree(&assigned, &subs, &[])),
+            [
+                ("urgent", 0, 2),
+                ("urgent-ready", 1, 0),
+                ("urgent-done", 1, 0),
+                ("high-started", 0, 0),
+                ("high-ready", 0, 0),
+                ("high-backlog", 0, 0),
+                ("low", 0, 0),
+                ("none", 0, 0),
             ]
         );
     }

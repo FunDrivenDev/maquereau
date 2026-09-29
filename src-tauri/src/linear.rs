@@ -84,6 +84,7 @@ fn read_listed(node: &Value) -> Issue {
         title: text(node, "title"),
         url: text(node, "url"),
         state: text(&node["state"], "name"),
+        state_type: serde_json::from_value(node["state"]["type"].clone()).unwrap_or_default(),
         tone: tone(&node["state"]),
         priority: node["priority"].as_f64().unwrap_or_default() as u8,
         initiatives: initiatives(node),
@@ -230,6 +231,7 @@ fn curl_string(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::live::StateType;
 
     #[test]
     fn escapes_for_a_curl_config() {
@@ -277,6 +279,7 @@ mod tests {
         });
         let issue = read_listed(&node);
         assert_eq!(issue.tone, Tone::Progress);
+        assert_eq!(issue.state_type, StateType::Started);
         assert_eq!(issue.priority, 2);
         assert_eq!(issue.estimate, Some(3.0));
         assert_eq!(issue.due_date, None);
