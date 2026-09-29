@@ -1,4 +1,4 @@
-import type { Link, LinkStatus, Live, Session, Topic } from "./api.ts";
+import type { Link, LinkStatus, Live, Session, StateType, Topic } from "./api.ts";
 
 /** A duration in seconds, in its two largest units: `3d 4h`, `5h 10m`, `12m`. */
 export function duration(seconds: number | null | undefined): string {
@@ -15,6 +15,16 @@ export const ago = (at: number, now: number) => (now - at < 60 ? "just now" : `$
 
 export const date = (at: number) =>
   new Date(at * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+
+/** The glyph of a Linear state, drawn in its colour as Linear does. */
+export const stateMark: Record<StateType, string> = {
+  triage: "◌",
+  backlog: "◌",
+  unstarted: "○",
+  started: "◐",
+  completed: "●",
+  canceled: "⊘",
+};
 
 /** How urgent herdr's states are, the most first. */
 const urgency = ["blocked", "done", "working", "unknown", "idle"];

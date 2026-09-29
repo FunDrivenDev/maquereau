@@ -75,7 +75,7 @@ pub fn sub_issues(shell: &Shell, key: &str) -> Result<Vec<Issue>, String> {
 
 /// What the backlog shows of an issue.
 const ISSUE: &str = "identifier title url priority description estimate dueDate createdAt \
-     updatedAt state { name type } labels(first: 10) { nodes { name color } } \
+     updatedAt state { name type color } labels(first: 10) { nodes { name color parent { name } } } \
      parent { identifier title } assignee { name isMe } project { name initiatives(first: 3) { nodes { id name url } } }";
 
 fn read_listed(node: &Value) -> Issue {
@@ -86,6 +86,7 @@ fn read_listed(node: &Value) -> Issue {
         state: text(&node["state"], "name"),
         state_type: serde_json::from_value(node["state"]["type"].clone()).unwrap_or_default(),
         tone: tone(&node["state"]),
+        state_color: text(&node["state"], "color"),
         priority: node["priority"].as_f64().unwrap_or_default() as u8,
         initiatives: initiatives(node),
         description: text(node, "description"),
@@ -97,6 +98,7 @@ fn read_listed(node: &Value) -> Issue {
             .map(|l| Label {
                 name: text(l, "name"),
                 color: text(l, "color"),
+                group: l["parent"]["name"].as_str().map(str::to_owned),
             })
             .collect(),
         estimate: node["estimate"].as_f64(),
@@ -115,7 +117,7 @@ fn read_listed(node: &Value) -> Issue {
 /// The state of issue `key` (`BIM-123`).
 pub fn status(shell: &Shell, api_key: &str, key: &str) -> Result<LinkStatus, String> {
     let query = format!(
-        "query($id: String!) {{ issue(id: $id) {{ identifier title url state {{ name type }} \
+        "query($id: String!) {{ issue(id: $id) {{ identifier title url state {{ name type color }} \
          comments(first: 100) {{ nodes {{ createdAt user {{ isMe }} }} }} {INITIATIVES} }} }}"
     );
     let data = request(shell, api_key, &query, json!({ "id": key }))?;
@@ -162,6 +164,7 @@ fn read_issue(issue: &Value) -> LinkStatus {
         title: format!("{} {}", text(issue, "identifier"), text(issue, "title")),
         state,
         tone,
+        color: issue["state"]["color"].as_str().map(str::to_owned),
         url: text(issue, "url"),
         comments: others.len() as u32,
         last_comment_at: others.iter().max().map(|at| (*at).to_owned()),
@@ -272,8 +275,8 @@ mod tests {
             "dueDate": null,
             "createdAt": "2026-09-01T00:00:00.000Z",
             "updatedAt": "2026-09-02T00:00:00.000Z",
-            "state": {"name": "In Progress", "type": "started"},
-            "labels": {"nodes": [{"name": "Bug", "color": "#eb5757"}]},
+            "state": {"name": "In Progress", "type": "started", "color": "#f2c94c"},
+            "labels": {"nodes": [{"name": "Bug", "color": "#eb5757", "parent": {"name": "Type"}}]},
             "parent": {"identifier": "BIM-7", "title": "Export PDF"},
             "project": {"name": "Reports", "initiatives": {"nodes": []}}
         });
@@ -284,7 +287,9 @@ mod tests {
         assert_eq!(issue.estimate, Some(3.0));
         assert_eq!(issue.due_date, None);
         assert_eq!(issue.project.as_deref(), Some("Reports"));
+        assert_eq!(issue.state_color, "#f2c94c");
         assert_eq!(issue.labels[0].name, "Bug");
+        assert_eq!(issue.labels[0].group.as_deref(), Some("Type"));
         assert_eq!(issue.parent.unwrap().key, "BIM-7");
         let bare = read_listed(&json!({"identifier": "BIM-9", "parent": null, "project": null}));
         assert_eq!(bare.parent, None);

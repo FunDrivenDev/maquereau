@@ -4,7 +4,7 @@
   import { type Initiative, type Issue, type Settings, type Slot, slots, type Snapshot, type Topic } from "./lib/api";
   import { applies, type Command } from "./lib/commands";
   import Detail from "./lib/Detail.svelte";
-  import { ago, isBlocked, linkStatus, linkUrl, nextStep, rows as rowsOf, sessionState } from "./lib/format";
+  import { ago, isBlocked, linkStatus, linkUrl, nextStep, rows as rowsOf, sessionState, stateMark } from "./lib/format";
   import Help from "./lib/Help.svelte";
   import IssueView from "./lib/IssueView.svelte";
   import Palette from "./lib/Palette.svelte";
@@ -93,14 +93,6 @@
       .map((topic): BacklogRow => ({ kind: "topic", key: `t${topic.id}`, topic })),
   ]);
   const priorityMark = ["·", "‼", "▮▮▮", "▮▮▯", "▮▯▯"];
-  const stateMark: Record<api.StateType, string> = {
-    triage: "◌",
-    backlog: "◌",
-    unstarted: "○",
-    started: "◐",
-    completed: "●",
-    canceled: "⊘",
-  };
 
   /** The backlog's issues as rows, but the sub-issues of a folded one. */
   function issueRows(entries: api.BacklogEntry[], folded: Set<string>): BacklogRow[] {
@@ -738,7 +730,13 @@
               <span class="priority" data-priority={item.issue.priority} title={api.priorityLabel(item.issue.priority)}>
                 {priorityMark[item.issue.priority] ?? "·"}
               </span>
-              <span class="progress" data-type={item.issue.state_type} data-tone={item.issue.tone} title={item.issue.state}>
+              <span
+                class="progress"
+                data-type={item.issue.state_type}
+                data-tone={item.issue.tone}
+                style:color={item.issue.state_color || null}
+                title={item.issue.state}
+              >
                 {stateMark[item.issue.state_type]}
               </span>
               <span class="fold" style:--depth={item.depth}>{item.children ? item.folded ? "▸" : "▾" : ""}</span>
