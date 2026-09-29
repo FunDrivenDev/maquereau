@@ -35,9 +35,13 @@ test:
 # Lint, then test.
 check: lint test
 
-# Run the app with hot reload of the front end.
+# Run the app with hot reload of the front end, served on a free port.
 dev:
-    deno task tauri dev
+    scripts/dev.sh
+
+# Check `just dev` would start, without opening the app: the debug build, and the dev server serving the front end.
+dev-check:
+    scripts/dev.sh check
 
 # Build the release app bundle, with home directory paths trimmed to `~` in the binary.
 build:
