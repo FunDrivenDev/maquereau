@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { type Issue, priorityLabel } from "./api";
-  import { ago, date } from "./format";
-  import { blocks } from "./markdown";
+  import { type Issue, openUrl, priorityLabel } from "./api";
+  import { ago, date, stateMark } from "./format";
+  import { render } from "./markdown";
 
   // A Linear issue of the backlog, read-only: what it asks, before focusing on it.
   let { issue, subIssues, now, pane = $bindable() }: {
@@ -13,14 +13,24 @@
   } = $props();
 
   const seconds = (iso: string) => Math.floor(Date.parse(iso) / 1000);
-  const description = $derived(blocks(issue.description));
+  const description = $derived(issue.description.trim() ? render(issue.description) : "");
+
+  // A link of the description opens in the browser, never in the app's window.
+  function follow(event: MouseEvent) {
+    const link = (event.target as Element).closest("a");
+    if (!link) return;
+    event.preventDefault();
+    if (/^https?:/.test(link.href)) void openUrl(link.href);
+  }
 </script>
 
 <section bind:this={pane}>
   <header>
     <h2><span class="key">{issue.key}</span> {issue.title}</h2>
     <p class="meta">
-      <span class="state" data-tone={issue.tone}>{issue.state}</span>
+      <span class="state" data-tone={issue.tone} style:--state={issue.state_color || null}>
+        <span class="glyph">{stateMark[issue.state_type]}</span>{issue.state}
+      </span>
       · <span class="priority" data-priority={issue.priority}>{priorityLabel(issue.priority)}</span>
       {#if issue.estimate !== null}· {issue.estimate} pt{/if}
       {#if issue.due_date}· due {date(seconds(issue.due_date))}{/if}
@@ -34,7 +44,9 @@
     {#if issue.labels.length}
       <p class="labels">
         {#each issue.labels as label (label.name)}
-          <span class="label" style:--dot={label.color}>{label.name}</span>
+          <span class="label" style:--dot={label.color}>
+            {#if label.group}<span class="group">{label.group}</span>{/if}{label.name}
+          </span>
         {/each}
       </p>
     {/if}
@@ -52,30 +64,21 @@
           <span class="key">{sub.key}</span>
           <span class="grow" class:struck={sub.tone === "done"}>{sub.title}</span>
           {#if !sub.mine && sub.assignee}<span class="meta">{sub.assignee}</span>{/if}
-          <span class="state meta" data-tone={sub.tone}>{sub.state}</span>
+          <span class="state meta" data-tone={sub.tone} style:--state={sub.state_color || null}>
+            <span class="glyph">{stateMark[sub.state_type]}</span>{sub.state}
+          </span>
         </li>
       {/each}
     </ul>
   {/if}
 
-  <div class="description">
-    {#each description as block, i (i)}
-      {#if block.kind === "heading"}
-        <p class="heading" data-level={Math.min(block.level, 3)}>{block.text}</p>
-      {:else if block.kind === "paragraph"}
-        <p>{block.text}</p>
-      {:else if block.kind === "item"}
-        <p class="item" style:--depth={block.depth}><span class="mark">{block.mark}</span>{block.text}</p>
-      {:else if block.kind === "quote"}
-        <blockquote>{block.text}</blockquote>
-      {:else if block.kind === "code"}
-        <pre>{block.text}</pre>
-      {:else}
-        <hr />
-      {/if}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="description" onclick={follow}>
+    {#if description}
+      {@html description}
     {:else}
       <p class="none">No description.</p>
-    {/each}
+    {/if}
   </div>
 
   <p class="hint">
@@ -93,8 +96,9 @@
   }
 
   h2 {
-    margin: 0 0 4px;
-    font-size: 17px;
+    margin: 0 0 6px;
+    font-size: 18px;
+    line-height: 1.3;
   }
 
   .key {
@@ -103,21 +107,44 @@
   }
 
   .meta {
-    margin: 2px 0;
+    margin: 3px 0;
     font-size: 12px;
     color: var(--overlay0);
   }
 
+  /* Linear's own colour for the state, so it reads the same here as there; the tone is the
+     fallback until the next read brings the colour. */
+  .state {
+    --state: var(--overlay0);
+  }
+
   .state[data-tone="review"] {
-    color: var(--yellow);
+    --state: var(--yellow);
   }
 
   .state[data-tone="progress"] {
-    color: var(--blue);
+    --state: var(--blue);
   }
 
   .state[data-tone="done"] {
-    color: var(--green);
+    --state: var(--green);
+  }
+
+  .glyph {
+    margin-right: 4px;
+    color: var(--state);
+  }
+
+  header .state {
+    padding: 1px 8px 1px 6px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--state) 16%, transparent);
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  li .state {
+    color: var(--subtext);
   }
 
   .priority[data-priority="1"] {
@@ -137,25 +164,35 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin: 6px 0 2px;
+    margin: 8px 0 4px;
   }
 
   .label {
-    padding: 1px 8px 1px 6px;
-    border: 1px solid var(--surface0);
-    border-radius: 10px;
-    font-size: 11px;
-    color: var(--subtext);
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px 2px 8px;
+    border: 1px solid var(--surface1);
+    border-radius: 12px;
+    font-size: 13px;
+    color: var(--text);
   }
 
   .label::before {
-    content: "●";
-    margin-right: 4px;
-    color: var(--dot);
+    content: "";
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--dot);
+  }
+
+  .group {
+    margin-right: 5px;
+    color: var(--overlay0);
   }
 
   h3 {
-    margin: 14px 0 4px;
+    margin: 16px 0 4px;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -194,64 +231,196 @@
     white-space: nowrap;
   }
 
+  /* The description, as Linear renders it. */
   .description {
-    margin-top: 14px;
-    padding-top: 10px;
+    margin-top: 16px;
+    padding-top: 12px;
     border-top: 1px solid var(--surface0);
-    line-height: 1.5;
+    line-height: 1.6;
     overflow-wrap: anywhere;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: auto;
   }
 
-  .description p,
-  blockquote {
-    margin: 0 0 8px;
-    white-space: pre-wrap;
+  .description :global(:first-child) {
+    margin-top: 0;
   }
 
-  .heading {
-    margin-top: 14px;
-    font-weight: 600;
+  .description :global(p),
+  .description :global(ul),
+  .description :global(ol),
+  .description :global(blockquote),
+  .description :global(pre),
+  .description :global(table) {
+    margin: 0 0 10px;
   }
 
-  .heading[data-level="1"] {
-    font-size: 16px;
+  .description :global(:is(h1, h2, h3, h4, h5, h6)) {
+    margin: 18px 0 6px;
+    line-height: 1.3;
+    font-weight: 650;
   }
 
-  .heading[data-level="2"] {
+  .description :global(h1) {
+    font-size: 19px;
+  }
+
+  .description :global(h2) {
+    font-size: 17px;
+  }
+
+  .description :global(h3) {
     font-size: 15px;
   }
 
-  .description .item {
-    margin: 0 0 3px;
-    padding-left: calc(var(--depth) * 18px + 18px);
-    text-indent: -18px;
+  .description :global(:is(h4, h5, h6)) {
+    font-size: 14px;
+    color: var(--subtext);
   }
 
-  .item .mark {
-    display: inline-block;
-    width: 18px;
-    text-indent: 0;
+  .description :global(:is(ul, ol)) {
+    padding-left: 22px;
+  }
+
+  .description :global(li) {
+    margin: 2px 0;
+  }
+
+  .description :global(li > :is(ul, ol)) {
+    margin: 2px 0 0;
+  }
+
+  .description :global(li::marker) {
     color: var(--overlay0);
   }
 
-  blockquote {
-    padding-left: 10px;
+  .description :global(li:has(> input[type="checkbox"])) {
+    list-style: none;
+    margin-left: -20px;
+  }
+
+  .description :global(input[type="checkbox"]) {
+    margin: 0 6px 0 0;
+    vertical-align: -1px;
+    accent-color: var(--accent);
+  }
+
+  .description :global(a) {
+    color: var(--blue);
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .description :global(a:hover) {
+    text-decoration: underline;
+  }
+
+  .description :global(strong) {
+    font-weight: 650;
+  }
+
+  .description :global(del) {
+    color: var(--overlay0);
+  }
+
+  .description :global(blockquote) {
+    padding: 2px 0 2px 12px;
     border-left: 3px solid var(--surface1);
     color: var(--subtext);
   }
 
-  pre {
-    margin: 0 0 8px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    background: var(--mantle);
-    font: 12px/1.45 var(--mono);
-    white-space: pre-wrap;
-  }
-
-  hr {
+  .description :global(hr) {
+    margin: 16px 0;
     border: 0;
     border-top: 1px solid var(--surface0);
+  }
+
+  .description :global(code) {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--mantle);
+    font: 12.5px var(--mono);
+  }
+
+  .description :global(pre) {
+    padding: 10px 12px;
+    border: 1px solid var(--surface0);
+    border-radius: 8px;
+    background: var(--mantle);
+    overflow-x: auto;
+  }
+
+  .description :global(pre code) {
+    padding: 0;
+    background: none;
+    font: 12px/1.5 var(--mono);
+  }
+
+  .description :global(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .description :global(:is(th, td)) {
+    padding: 5px 10px;
+    border: 1px solid var(--surface0);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .description :global(th) {
+    background: var(--mantle);
+    font-weight: 600;
+  }
+
+  .description :global(tr:nth-child(even) td) {
+    background: color-mix(in srgb, var(--mantle) 50%, transparent);
+  }
+
+  /* highlight.js tokens, in the theme's colours. */
+  .description :global(:is(.hljs-comment, .hljs-quote)) {
+    color: var(--overlay0);
+    font-style: italic;
+  }
+
+  .description :global(:is(.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-doctag)) {
+    color: var(--accent);
+  }
+
+  .description :global(:is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-tag)) {
+    color: var(--green);
+  }
+
+  .description :global(:is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet)) {
+    color: var(--yellow);
+  }
+
+  .description :global(:is(.hljs-title, .hljs-section, .hljs-function)) {
+    color: var(--blue);
+  }
+
+  .description :global(:is(.hljs-type, .hljs-class, .hljs-attr, .hljs-attribute, .hljs-variable)) {
+    color: var(--teal);
+  }
+
+  .description :global(:is(.hljs-meta, .hljs-tag, .hljs-name, .hljs-selector-class, .hljs-selector-id)) {
+    color: var(--subtext);
+  }
+
+  .description :global(.hljs-deletion) {
+    color: var(--red);
+  }
+
+  .description :global(.hljs-emphasis) {
+    font-style: italic;
+  }
+
+  .description :global(.hljs-strong) {
+    font-weight: 700;
   }
 
   .none,

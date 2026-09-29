@@ -90,7 +90,7 @@
                 <span class="mark">{kindGlyph[row.link.kind]}</span>
                 <span class="grow">{linkTitle(live, row.link)}</span>
                 {#if status}
-                  <span class="state" data-tone={status.tone}>{status.state}</span>
+                  <span class="state" data-tone={status.tone} style:color={status.color}>{status.state}</span>
                   {#if status.comments}<span class="comments">💬 {status.comments}</span>{/if}
                 {/if}
               {:else if row.kind === "note"}

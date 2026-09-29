@@ -101,6 +101,8 @@ export interface LinkStatus {
   title: string;
   state: string;
   tone: Tone;
+  /** The state's colour in its source, `#rrggbb`, when it has one (Linear). */
+  color: string | null;
   url: string;
   comments: number;
   last_comment_at: string | null;
@@ -110,6 +112,8 @@ export interface LinkStatus {
 export interface Label {
   name: string;
   color: string;
+  /** The label group it belongs to (`Type`, `App`…). */
+  group: string | null;
 }
 
 /** Mirrors `Issue` in src-tauri/src/live.rs. */
@@ -120,6 +124,8 @@ export interface Issue {
   state: string;
   state_type: StateType;
   tone: Tone;
+  /** The state's colour in Linear, `#rrggbb`. */
+  state_color: string;
   /** 0 none, 1 urgent … 4 low. */
   priority: number;
   initiatives: Initiative[];

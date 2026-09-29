@@ -34,7 +34,7 @@
       <span class="links">
         {#each topic.links as link (link.id)}
           {@const status = linkStatus(live, link)}
-          <span class="link" data-tone={status?.tone ?? "none"} title={status?.state ?? link.url}>
+          <span class="link" data-tone={status?.tone ?? "none"} style:color={status?.color} title={status?.state ?? link.url}>
             {kindGlyph[link.kind]}{#if status?.comments}<sup>{status.comments}</sup>{/if}
           </span>
         {/each}

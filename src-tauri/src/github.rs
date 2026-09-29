@@ -75,6 +75,7 @@ fn read(value: &Value, me: &str) -> LinkStatus {
         title: text("title"),
         state: label.into(),
         tone,
+        color: None,
         url: text("url"),
         comments: others.len() as u32,
         last_comment_at: others.iter().max().map(|at| (*at).to_owned()),

@@ -35,6 +35,8 @@ pub struct LinkStatus {
     /// The state as its source names it: `In Review`, `Merged`…
     pub state: String,
     pub tone: Tone,
+    /// The state's colour in its source, `#rrggbb`, when it has one (Linear).
+    pub color: Option<String>,
     pub url: String,
     /// Comments and reviews by others.
     pub comments: u32,
@@ -64,6 +66,8 @@ pub struct Issue {
     pub state: String,
     pub state_type: StateType,
     pub tone: Tone,
+    /// The state's colour in Linear, `#rrggbb`.
+    pub state_color: String,
     /// Linear's priority: 0 none, 1 urgent … 4 low.
     pub priority: u8,
     pub initiatives: Vec<Initiative>,
@@ -103,6 +107,8 @@ pub struct Label {
     pub name: String,
     /// `#rrggbb`.
     pub color: String,
+    /// The label group it belongs to (`Type`, `App`…).
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,6 +260,7 @@ mod tests {
             title: "BIM-1 Export".into(),
             state: "In Progress".into(),
             tone: Tone::Progress,
+            color: None,
             url: "u".into(),
             comments,
             last_comment_at: None,
