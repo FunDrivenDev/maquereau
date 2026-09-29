@@ -1,0 +1,206 @@
+//! Linear, read through its GraphQL API with Raphaël's personal API key.
+//!
+//! The key lives in the macOS keychain. Requests go through `curl`, their headers and
+//! body written to its standard input as a config file, so the key never shows in the
+//! process list.
+
+use serde_json::{Value, json};
+
+use crate::live::{Issue, LinkStatus, Tone};
+use crate::model::Initiative;
+use crate::shell::Shell;
+
+const SERVICE: &str = "dev.fundrivendev.maquereau";
+const ACCOUNT: &str = "linear";
+
+fn entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SERVICE, ACCOUNT).map_err(|e| e.to_string())
+}
+
+/// The API key, when one is set.
+pub fn key() -> Option<String> {
+    entry().ok()?.get_password().ok().filter(|k| !k.is_empty())
+}
+
+/// Saves `key` in the keychain, or forgets it when blank.
+pub fn set_key(key: &str) -> Result<(), String> {
+    let entry = entry()?;
+    let key = key.trim();
+    if key.is_empty() {
+        return match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        };
+    }
+    entry.set_password(key).map_err(|e| e.to_string())
+}
+
+const INITIATIVES: &str = "project { initiatives(first: 3) { nodes { id name url } } }";
+
+/// The open issues assigned to Raphaël, most recently updated first.
+pub fn assigned(shell: &Shell, key: &str) -> Result<Vec<Issue>, String> {
+    let query = format!(
+        "query {{ viewer {{ assignedIssues(first: 100, orderBy: updatedAt, filter: \
+         {{ state: {{ type: {{ nin: [\"completed\", \"canceled\"] }} }} }}) \
+         {{ nodes {{ identifier title url priority state {{ name type }} {INITIATIVES} }} }} }} }}"
+    );
+    let data = request(shell, key, &query, json!({}))?;
+    let nodes = data["viewer"]["assignedIssues"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    Ok(nodes
+        .iter()
+        .map(|n| Issue {
+            key: text(n, "identifier"),
+            title: text(n, "title"),
+            url: text(n, "url"),
+            state: text(&n["state"], "name"),
+            priority: n["priority"].as_f64().unwrap_or_default() as u8,
+            initiatives: initiatives(n),
+        })
+        .collect())
+}
+
+/// The state of issue `key` (`BIM-123`).
+pub fn status(shell: &Shell, api_key: &str, key: &str) -> Result<LinkStatus, String> {
+    let query = format!(
+        "query($id: String!) {{ issue(id: $id) {{ identifier title url state {{ name type }} \
+         comments(first: 100) {{ nodes {{ createdAt user {{ isMe }} }} }} {INITIATIVES} }} }}"
+    );
+    let data = request(shell, api_key, &query, json!({ "id": key }))?;
+    Ok(read_issue(&data["issue"]))
+}
+
+/// The initiatives still open, by name.
+pub fn open_initiatives(shell: &Shell, key: &str) -> Result<Vec<Initiative>, String> {
+    let query = "query { initiatives(first: 100) { nodes { id name url status } } }";
+    let data = request(shell, key, query, json!({}))?;
+    let mut list: Vec<Initiative> = data["initiatives"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|n| !matches!(n["status"].as_str(), Some("Completed" | "Canceled")))
+        .map(initiative)
+        .collect();
+    list.sort_by_key(|i| i.name.to_lowercase());
+    Ok(list)
+}
+
+fn read_issue(issue: &Value) -> LinkStatus {
+    let state = text(&issue["state"], "name");
+    let tone = match issue["state"]["type"].as_str() {
+        Some("completed") => Tone::Done,
+        Some("canceled") => Tone::Closed,
+        Some("started") if state.to_lowercase().contains("review") => Tone::Review,
+        Some("started") => Tone::Progress,
+        _ => Tone::Open,
+    };
+    let others: Vec<&str> = issue["comments"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["user"]["isMe"].as_bool() == Some(false))
+        .filter_map(|c| c["createdAt"].as_str())
+        .collect();
+    LinkStatus {
+        title: format!("{} {}", text(issue, "identifier"), text(issue, "title")),
+        state,
+        tone,
+        url: text(issue, "url"),
+        comments: others.len() as u32,
+        last_comment_at: others.iter().max().map(|at| (*at).to_owned()),
+        initiatives: initiatives(issue),
+    }
+}
+
+fn initiatives(node: &Value) -> Vec<Initiative> {
+    node["project"]["initiatives"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(initiative)
+        .collect()
+}
+
+fn initiative(node: &Value) -> Initiative {
+    Initiative {
+        id: text(node, "id"),
+        name: text(node, "name"),
+        url: text(node, "url"),
+    }
+}
+
+fn text(node: &Value, key: &str) -> String {
+    node[key].as_str().unwrap_or_default().to_owned()
+}
+
+/// Posts a GraphQL query and returns its `data`, or the first error.
+fn request(shell: &Shell, key: &str, query: &str, variables: Value) -> Result<Value, String> {
+    let body = json!({ "query": query, "variables": variables }).to_string();
+    let config = format!(
+        "url = \"https://api.linear.app/graphql\"\n\
+         silent\nshow-error\nmax-time = 30\n\
+         header = \"Content-Type: application/json\"\n\
+         header = {}\n\
+         data-binary = {}\n",
+        curl_string(&format!("Authorization: {key}")),
+        curl_string(&body),
+    );
+    let out = shell.run("curl", &["--config", "-"], Some(&config))?;
+    let value: Value = serde_json::from_str(&out).map_err(|e| format!("Linear: {e}"))?;
+    if let Some(message) = value["errors"][0]["message"].as_str() {
+        return Err(format!("Linear: {message}"));
+    }
+    Ok(value["data"].clone())
+}
+
+/// `text` as a double-quoted string of a curl config file.
+fn curl_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str(r"\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str(r"\n"),
+            '\r' => out.push_str(r"\r"),
+            '\t' => out.push_str(r"\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escapes_for_a_curl_config() {
+        assert_eq!(curl_string(r#"{"a":"b\n"}"#), r#""{\"a\":\"b\\n\"}""#);
+        assert_eq!(curl_string("x\ny"), r#""x\ny""#);
+    }
+
+    #[test]
+    fn reads_an_issue() {
+        let issue = json!({
+            "identifier": "BIM-7",
+            "title": "Export PDF",
+            "url": "https://linear.app/ws/issue/BIM-7",
+            "state": {"name": "In Review", "type": "started"},
+            "comments": {"nodes": [
+                {"createdAt": "2026-09-01T00:00:00Z", "user": {"isMe": true}},
+                {"createdAt": "2026-09-02T00:00:00Z", "user": null},
+                {"createdAt": "2026-09-03T00:00:00Z", "user": {"isMe": false}}
+            ]},
+            "project": {"initiatives": {"nodes": [{"id": "i1", "name": "Reports", "url": "u"}]}}
+        });
+        let status = read_issue(&issue);
+        assert_eq!(status.title, "BIM-7 Export PDF");
+        assert_eq!(status.tone, Tone::Review);
+        assert_eq!(status.comments, 1);
+        assert_eq!(status.initiatives[0].name, "Reports");
+    }
+}

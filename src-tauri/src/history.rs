@@ -82,19 +82,17 @@ fn step(
 mod tests {
     use super::*;
 
+    use crate::model::Slot;
+    use crate::model::tests::topic;
+
     fn titles(model: &Model) -> Vec<&str> {
-        model.items.list.iter().map(|i| i.title.as_str()).collect()
+        model.topics.list.iter().map(|t| t.title.as_str()).collect()
     }
 
     fn add(history: &mut History, model: &mut Model, title: &str) {
-        let item = model.new_item(title.into());
-        let index = model.items.list.len();
+        let topic = topic(model, title, Slot::Feature);
         history
-            .perform(
-                model,
-                format!("Add “{title}”"),
-                Change::Insert { index, item },
-            )
+            .perform(model, format!("Add “{title}”"), Change::put(topic))
             .unwrap();
     }
 
@@ -104,7 +102,15 @@ mod tests {
         add(&mut history, &mut model, "a");
         add(&mut history, &mut model, "b");
         history
-            .perform(&mut model, "Delete “a”", Change::Remove { id: 0 })
+            .perform(
+                &mut model,
+                "Delete “a”",
+                Change::Put {
+                    id: 0,
+                    index: 0,
+                    topic: None,
+                },
+            )
             .unwrap();
         assert_eq!(titles(&model), ["b"]);
 
@@ -147,6 +153,6 @@ mod tests {
             undone += 1;
         }
         assert_eq!(undone, DEPTH);
-        assert_eq!(model.items.list.len(), 5);
+        assert_eq!(model.topics.list.len(), 5);
     }
 }

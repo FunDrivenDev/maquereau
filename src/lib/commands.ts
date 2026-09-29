@@ -11,8 +11,13 @@ export interface Command {
    * native menu or App.svelte handles it.
    */
   keys: string[];
-  run: () => void;
+  /** Whether the command applies now; a key shared by several goes to the first that does. */
+  when?: () => boolean;
+  /** Gets the key that ran it; none from the palette. */
+  run: (key?: string) => void;
 }
+
+export const applies = (command: Command) => command.when?.() ?? true;
 
 const glyphs: Record<string, string> = {
   ArrowDown: "↓",
@@ -20,6 +25,7 @@ const glyphs: Record<string, string> = {
   Backspace: "⌫",
   Enter: "↵",
   Escape: "esc",
+  Tab: "⇥",
   " ": "space",
 };
 
