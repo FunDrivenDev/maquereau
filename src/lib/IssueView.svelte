@@ -25,6 +25,23 @@
 </script>
 
 <section bind:this={pane}>
+  <!-- What the issue serves, always in sight: the initiative is the why, the project the group of tasks. -->
+  <nav class="hierarchy">
+    <div class="level why">
+      <span class="caption">Initiative</span>
+      {#each issue.initiatives as initiative (initiative.id)}
+        <span class="name">◇ {initiative.name}</span>
+      {:else}
+        <span class="name none">No initiative</span>
+      {/each}
+    </div>
+    <span class="arrow">›</span>
+    <div class="level">
+      <span class="caption">Project</span>
+      <span class="name" class:none={!issue.project}>{issue.project ? `▦ ${issue.project}` : "No project"}</span>
+    </div>
+  </nav>
+
   <header>
     <h2><span class="key">{issue.key}</span> {issue.title}</h2>
     <p class="meta">
@@ -34,9 +51,7 @@
       · <span class="priority" data-priority={issue.priority}>{priorityLabel(issue.priority)}</span>
       {#if issue.estimate !== null}· {issue.estimate} pt{/if}
       {#if issue.due_date}· due {date(seconds(issue.due_date))}{/if}
-      {#if issue.project}· {issue.project}{/if}
       {#if !issue.mine}· {issue.assignee ? `assigned to ${issue.assignee}` : "unassigned"}{/if}
-      {#if issue.initiatives[0]}· <span class="initiative">◇ {issue.initiatives[0].name}</span>{/if}
     </p>
     {#if issue.parent}
       <p class="meta">↳ sub-issue of {issue.parent.key} {issue.parent.title}</p>
@@ -156,8 +171,54 @@
     color: var(--yellow);
   }
 
-  .initiative {
+  .hierarchy {
+    position: sticky;
+    top: -14px;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: -14px -18px 14px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--surface0);
+    background: var(--mantle);
+  }
+
+  .level {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .caption {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--overlay0);
+  }
+
+  .level .name {
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 650;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .why .name {
     color: var(--accent);
+  }
+
+  .level .name.none {
+    font-weight: 500;
+    font-style: italic;
+    color: var(--overlay0);
+  }
+
+  .arrow {
+    font-size: 20px;
+    color: var(--overlay0);
   }
 
   .labels {
