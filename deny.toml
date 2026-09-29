@@ -3,6 +3,11 @@
 [advisories]
 # The Linux GTK stack Tauri depends on is unmaintained upstream; only flag our own crates.
 unmaintained = "workspace"
+unsound = "all"
+ignore = [
+  # Tauri, up to 3.0.0-alpha.3, still requires gtk 0.18 and so glib 0.18.
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18 builds only for Linux, and maquereau never iterates a VariantStrIter" },
+]
 
 [sources]
 unknown-registry = "deny"
