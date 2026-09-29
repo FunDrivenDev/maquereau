@@ -7,6 +7,7 @@
 //! background thread reads Linear, GitHub and herdr, and sends a new `Snapshot` as a
 //! `snapshot` event when it has.
 
+mod backlog;
 mod flow;
 mod github;
 mod herdr;
@@ -30,7 +31,7 @@ use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 
 use history::History;
-use live::{Issue, Live};
+use live::Live;
 use model::{Block, Change, Initiative, Link, Model, Note, Rework, Slot, Stage, Step, Time, Topic};
 use settings::Settings;
 use shell::Shell;
@@ -114,8 +115,8 @@ struct Snapshot {
     times: Vec<(u64, flow::Times)>,
     stats: Vec<flow::SlotStats>,
     live: Live,
-    /// The assigned Linear issues no open topic links to: the hidden backlog.
-    backlog: Vec<Issue>,
+    /// The assigned Linear issues no open topic links to, and their sub-issues, as a tree.
+    backlog: Vec<backlog::Entry>,
     settings: Settings,
     has_linear_key: bool,
     now: Time,
@@ -140,13 +141,7 @@ impl Snapshot {
             times: topics.iter().map(|t| (t.id, flow::times(t, now))).collect(),
             stats: flow::stats(topics, now, inner.model.settings.stats_days),
             live: inner.live.clone(),
-            backlog: inner
-                .live
-                .assigned
-                .iter()
-                .filter(|i| !linked.contains(&i.key))
-                .cloned()
-                .collect(),
+            backlog: backlog::tree(&inner.live.assigned, &inner.live.sub_issues, &linked),
             settings: inner.model.settings.clone(),
             has_linear_key: inner.has_linear_key,
             now,
@@ -202,7 +197,7 @@ fn create_topic(
     })
 }
 
-/// Makes a topic of the assigned Linear issue `key` and puts it in `slot`.
+/// Makes a topic of the backlog's Linear issue `key` and puts it in `slot`.
 #[tauri::command]
 fn topic_from_issue(app: State<App>, key: &str, slot: Slot) -> Result<Snapshot, String> {
     app.update(
@@ -215,6 +210,7 @@ fn topic_from_issue(app: State<App>, key: &str, slot: Slot) -> Result<Snapshot, 
             let issue = live
                 .assigned
                 .iter()
+                .chain(&live.sub_issues)
                 .find(|i| i.key == key)
                 .ok_or_else(|| format!("no issue {key}"))?;
             let mut topic = new_topic(model, issue.title.clone(), slot);

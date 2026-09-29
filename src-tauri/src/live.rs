@@ -18,6 +18,8 @@ pub struct Live {
     pub links: BTreeMap<String, LinkStatus>,
     /// The open Linear issues assigned to Raphaël.
     pub assigned: Vec<Issue>,
+    /// Their sub-issues, whoever they are assigned to, done ones included.
+    pub sub_issues: Vec<Issue>,
     pub initiatives: Vec<Initiative>,
     /// By herdr session name.
     pub sessions: BTreeMap<String, Session>,
@@ -76,6 +78,9 @@ pub struct Issue {
     /// ISO 8601.
     pub updated_at: String,
     pub parent: Option<IssueRef>,
+    pub assignee: Option<String>,
+    /// Assigned to Raphaël.
+    pub mine: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +145,10 @@ pub fn read_remote(shell: &Shell, topics: &[Topic], before: &Live, gh_login: &st
         Some(key) => {
             match linear::assigned(shell, key) {
                 Ok(issues) => live.assigned = issues,
+                Err(e) => live.errors.push(e),
+            }
+            match linear::sub_issues(shell, key) {
+                Ok(issues) => live.sub_issues = issues,
                 Err(e) => live.errors.push(e),
             }
             match linear::open_initiatives(shell, key) {

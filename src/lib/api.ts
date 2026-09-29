@@ -132,6 +132,18 @@ export interface Issue {
   /** ISO 8601. */
   updated_at: string;
   parent: { key: string; title: string } | null;
+  assignee: string | null;
+  /** Assigned to Raphaël. */
+  mine: boolean;
+}
+
+/** An issue of the backlog's tree, which lists each issue followed by its sub-issues. */
+export interface BacklogEntry {
+  issue: Issue;
+  /** 0 at the top, 1 for a sub-issue… */
+  depth: number;
+  /** Its sub-issues, listed right after it. */
+  children: number;
 }
 
 export const priorityLabel = (priority: number) =>
@@ -151,6 +163,7 @@ export interface Session {
 export interface Live {
   links: Record<string, LinkStatus>;
   assigned: Issue[];
+  sub_issues: Issue[];
   initiatives: Initiative[];
   sessions: Record<string, Session>;
   refreshed_at: Time | null;
@@ -179,8 +192,8 @@ export interface Snapshot {
   times: [number, Times][];
   stats: SlotStats[];
   live: Live;
-  /** The assigned Linear issues no open topic links to. */
-  backlog: Issue[];
+  /** The assigned Linear issues no open topic links to, and their sub-issues. */
+  backlog: BacklogEntry[];
   settings: Settings;
   has_linear_key: boolean;
   now: Time;

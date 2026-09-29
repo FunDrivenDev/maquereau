@@ -4,8 +4,9 @@
   import { blocks } from "./markdown";
 
   // A Linear issue of the backlog, read-only: what it asks, before focusing on it.
-  let { issue, now, pane = $bindable() }: {
+  let { issue, subIssues, now, pane = $bindable() }: {
     issue: Issue;
+    subIssues: Issue[];
     now: number;
     /** The scrolling element, for the keys that scroll it. */
     pane?: HTMLElement;
@@ -24,6 +25,7 @@
       {#if issue.estimate !== null}· {issue.estimate} pt{/if}
       {#if issue.due_date}· due {date(seconds(issue.due_date))}{/if}
       {#if issue.project}· {issue.project}{/if}
+      {#if !issue.mine}· {issue.assignee ? `assigned to ${issue.assignee}` : "unassigned"}{/if}
       {#if issue.initiatives[0]}· <span class="initiative">◇ {issue.initiatives[0].name}</span>{/if}
     </p>
     {#if issue.parent}
@@ -41,6 +43,20 @@
       {#if issue.updated_at}· updated {ago(seconds(issue.updated_at), now)}{/if}
     </p>
   </header>
+
+  {#if subIssues.length}
+    <h3>Sub-issues</h3>
+    <ul>
+      {#each subIssues as sub (sub.key)}
+        <li>
+          <span class="key">{sub.key}</span>
+          <span class="grow" class:struck={sub.tone === "done"}>{sub.title}</span>
+          {#if !sub.mine && sub.assignee}<span class="meta">{sub.assignee}</span>{/if}
+          <span class="state meta" data-tone={sub.tone}>{sub.state}</span>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 
   <div class="description">
     {#each description as block, i (i)}
@@ -64,7 +80,8 @@
 
   <p class="hint">
     <kbd>1</kbd>–<kbd>4</kbd> or <kbd>↵</kbd> makes it a topic in a slot · <kbd>l</kbd> links it to a topic ·
-    <kbd>o</kbd> opens it in Linear · <kbd>space</kbd> <kbd>J</kbd> <kbd>K</kbd> scroll
+    <kbd>o</kbd> opens it in Linear · <kbd>space</kbd> <kbd>J</kbd> <kbd>K</kbd> scroll · <kbd>←</kbd>
+    <kbd>→</kbd> <kbd>z</kbd> fold its sub-issues
   </p>
 </section>
 
@@ -135,6 +152,46 @@
     content: "●";
     margin-right: 4px;
     color: var(--dot);
+  }
+
+  h3 {
+    margin: 14px 0 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--overlay0);
+  }
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 2px 0;
+  }
+
+  li .key {
+    font-size: 12px;
+  }
+
+  .grow {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .struck {
+    text-decoration: line-through;
+    color: var(--overlay0);
+  }
+
+  li .meta {
+    margin: 0;
+    white-space: nowrap;
   }
 
   .description {

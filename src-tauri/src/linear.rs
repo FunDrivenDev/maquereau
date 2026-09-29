@@ -53,10 +53,30 @@ pub fn assigned(shell: &Shell, key: &str) -> Result<Vec<Issue>, String> {
         .collect())
 }
 
+/// The sub-issues, two levels down, of the open issues assigned to Raphaël, done ones
+/// included; those assigned to him come back too.
+pub fn sub_issues(shell: &Shell, key: &str) -> Result<Vec<Issue>, String> {
+    let mine = "{ assignee: { isMe: { eq: true } }, \
+         state: { type: { nin: [\"completed\", \"canceled\"] } } }";
+    let query = format!(
+        "query {{ issues(first: 100, orderBy: updatedAt, filter: {{ \
+         state: {{ type: {{ neq: \"canceled\" }} }}, \
+         or: [{{ parent: {mine} }}, {{ parent: {{ parent: {mine} }} }}] }}) \
+         {{ nodes {{ {ISSUE} }} }} }}"
+    );
+    let data = request(shell, key, &query, json!({}))?;
+    Ok(data["issues"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(read_listed)
+        .collect())
+}
+
 /// What the backlog shows of an issue.
 const ISSUE: &str = "identifier title url priority description estimate dueDate createdAt \
      updatedAt state { name type } labels(first: 10) { nodes { name color } } \
-     parent { identifier title } project { name initiatives(first: 3) { nodes { id name url } } }";
+     parent { identifier title } assignee { name isMe } project { name initiatives(first: 3) { nodes { id name url } } }";
 
 fn read_listed(node: &Value) -> Issue {
     Issue {
@@ -82,6 +102,8 @@ fn read_listed(node: &Value) -> Issue {
         due_date: node["dueDate"].as_str().map(str::to_owned),
         created_at: text(node, "createdAt"),
         updated_at: text(node, "updatedAt"),
+        assignee: node["assignee"]["name"].as_str().map(str::to_owned),
+        mine: node["assignee"]["isMe"].as_bool().unwrap_or_default(),
         parent: node["parent"].is_object().then(|| IssueRef {
             key: text(&node["parent"], "identifier"),
             title: text(&node["parent"], "title"),
