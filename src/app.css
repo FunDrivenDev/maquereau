@@ -1,0 +1,146 @@
+/* Catppuccin Latte in light mode and Frappé in dark mode; the theme setting picks one or follows macOS. */
+:root {
+  --base: #eff1f5;
+  --mantle: #e6e9ef;
+  --crust: #dce0e8;
+  --surface0: #ccd0da;
+  --surface1: #bcc0cc;
+  --overlay0: #9ca0b0;
+  --subtext: #5c5f77;
+  --text: #4c4f69;
+  --accent: #8839ef;
+  --blue: #1e66f5;
+  --green: #40a02b;
+  --yellow: #df8e1d;
+  --red: #d20f39;
+  --teal: #179299;
+  --shadow: 0 12px 40px rgb(76 79 105 / 0.25);
+
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius: 8px;
+
+  color-scheme: light dark;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--base);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dark: when the theme setting says so, or follows a dark macOS. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --base: #303446;
+  --mantle: #292c3c;
+  --crust: #232634;
+  --surface0: #414559;
+  --surface1: #51576d;
+  --overlay0: #737994;
+  --subtext: #a5adce;
+  --text: #c6d0f5;
+  --accent: #ca9ee6;
+  --blue: #8caaee;
+  --green: #a6d189;
+  --yellow: #e5c890;
+  --red: #e78284;
+  --teal: #81c8be;
+  --shadow: 0 12px 40px rgb(0 0 0 / 0.45);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --base: #303446;
+    --mantle: #292c3c;
+    --crust: #232634;
+    --surface0: #414559;
+    --surface1: #51576d;
+    --overlay0: #737994;
+    --subtext: #a5adce;
+    --text: #c6d0f5;
+    --accent: #ca9ee6;
+    --blue: #8caaee;
+    --green: #a6d189;
+    --yellow: #e5c890;
+    --red: #e78284;
+    --teal: #81c8be;
+    --shadow: 0 12px 40px rgb(0 0 0 / 0.45);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+kbd {
+  font-family: var(--sans);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--surface0);
+  border-bottom-width: 2px;
+  background: var(--mantle);
+  color: var(--subtext);
+}
+
+mark {
+  background: none;
+  color: var(--accent);
+  font-weight: 650;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--base);
+  border: 1px solid var(--surface0);
+  border-radius: 6px;
+  padding: 8px 10px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface0);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}

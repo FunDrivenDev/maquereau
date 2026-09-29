@@ -1,0 +1,9 @@
+[files]
+extend-exclude = [
+  "deno.lock",
+  "src-tauri/Cargo.lock",
+  "src-tauri/icons/",
+  "src-tauri/gen/",
+  "dist/",
+  "node_modules/",
+]

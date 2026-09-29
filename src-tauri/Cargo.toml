@@ -1,0 +1,37 @@
+[package]
+name = "maquereau"
+version = "0.1.0"
+description = "Keeps focus on four priority topics, one per slot, with their issues, pull requests, notes, flow times and Claude sessions."
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[lib]
+name = "maquereau_lib"
+crate-type = ["lib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+nucleo-matcher = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
