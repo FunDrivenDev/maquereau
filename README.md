@@ -57,12 +57,17 @@ Every search is fuzzy and every word must match; as in fzf, `'word` matches exac
 
 [Raycast](docs/raycast.md) can list the slots and open their sessions, from that data.
 
+## Install
+
+```sh
+brew install fundrivendev/tap/maquereau
+```
+
 ## Releases
 
-Releases come from the Release workflow, started from the Actions tab or with `gh workflow run release -f version=0.2.0`. Once CI has passed on `main`, it builds the app on macOS, scans it for secrets and home directory paths, then commits the version, tags it and attaches the app to a GitHub release.
-`just publish <version>` does the same from a Mac, as a fallback.
+Every merge to `main` is released once CI passes on it. The Release workflow waits 5 minutes and releases only `main`'s head, so pull requests merged close together ship as one release. It bumps the patch version, or the minor or major one when a pull request in the release carries the `minor` or `major` label. It builds the app on macOS and installs it there from the cask, then, on Linux, scans it for secrets and home directory paths, tags the commit and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>. If a release fails, "Re-run failed jobs" finishes it.
 
-maquereau is ad-hoc signed, without an Apple Developer ID, so macOS quarantines a downloaded copy until the flag is lifted (`xattr -dr com.apple.quarantine maquereau.app`).
+maquereau is ad-hoc signed, without an Apple Developer ID; the cask lifts the quarantine flag macOS puts on the download.
 
 ## Development
 
@@ -71,11 +76,12 @@ Every tool is pinned in `mise.toml`, and the Justfile is the entry point:
 ```sh
 just deps      # install the tools and dependencies; `just deps update` moves them to the newest week-old versions
 just dev       # run with hot reload
-just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, workflows, spelling), then test
+just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, shell, workflows, spelling), then test
 just act       # run the CI workflow locally, in Docker
 just audit     # secrets and personal data in the history, vulnerable dependencies, unsafe workflows
 just install   # build the release bundle into ~/Applications and open it
 just icons     # regenerate the icons from assets/icon.svg
+just cask      # check the cask against Homebrew's rules (macOS)
 ```
 
 Deno installs the npm packages itself; npm is never used. CI runs on `ubuntu-latest`, releases build on `macos-latest`.
