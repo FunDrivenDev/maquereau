@@ -25,6 +25,8 @@ const glyphs: Record<string, string> = {
   Backspace: "⌫",
   Enter: "↵",
   Escape: "esc",
+  PageDown: "⇟",
+  PageUp: "⇞",
   Tab: "⇥",
   " ": "space",
 };

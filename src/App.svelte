@@ -5,6 +5,7 @@
   import Detail from "./lib/Detail.svelte";
   import { ago, isBlocked, linkStatus, linkUrl, nextStep, rows as rowsOf, sessionState } from "./lib/format";
   import Help from "./lib/Help.svelte";
+  import IssueView from "./lib/IssueView.svelte";
   import Palette from "./lib/Palette.svelte";
   import Pick from "./lib/Pick.svelte";
   import Prompt from "./lib/Prompt.svelte";
@@ -68,6 +69,7 @@
   let choice = $state<Choice | null>(null);
   let toast = $state<{ text: string; error: boolean } | null>(null);
   let list: HTMLElement | undefined = $state();
+  let issuePane: HTMLElement | undefined = $state();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   const times = $derived(new Map(data.times));
@@ -395,6 +397,12 @@
   }
 
   const onStep = () => row?.kind === "step";
+  const onIssue = () => selectedIssue !== null;
+
+  /** Scrolls the issue shown by `pages` of its pane. */
+  function scrollIssue(pages: number) {
+    if (issuePane) issuePane.scrollBy({ top: pages * issuePane.clientHeight * 0.85, behavior: "smooth" });
+  }
 
   const commands: Command[] = [
     { id: "palette", label: "Search and commands", keys: ["⌘K", "/"], run: () => (overlay = "palette") },
@@ -446,6 +454,10 @@
     { id: "done-step", label: "Check the next step (or the selected one)", keys: ["x"], run: doneStep },
     { id: "step-up", label: "Move the step up", keys: ["K"], when: onStep, run: () => moveStep(-1) },
     { id: "step-down", label: "Move the step down", keys: ["J"], when: onStep, run: () => moveStep(1) },
+    { id: "scroll-down", label: "Scroll the issue down", keys: [" ", "J", "PageDown"], when: onIssue, run: (key) =>
+      scrollIssue(key === "J" ? 0.25 : 1) },
+    { id: "scroll-up", label: "Scroll the issue up", keys: ["K", "PageUp"], when: onIssue, run: (key) =>
+      scrollIssue(key === "K" ? -0.25 : -1) },
     {
       id: "note",
       label: "Write a note",
@@ -665,14 +677,9 @@
           onRow={(i) => (detailRow = i)}
         />
       {:else if selectedIssue}
-        <section class="issue">
-          <h2>{selectedIssue.key} · {selectedIssue.title}</h2>
-          <p>{selectedIssue.state}{selectedIssue.initiatives[0] ? ` · ◇ ${selectedIssue.initiatives[0].name}` : ""}</p>
-          <p class="hint">
-            <kbd>1</kbd>–<kbd>4</kbd> or <kbd>↵</kbd> makes it a topic in a slot · <kbd>l</kbd> links it to a
-            topic · <kbd>o</kbd> opens it
-          </p>
-        </section>
+        {#key selectedIssue.key}
+          <IssueView issue={selectedIssue} now={data.now} bind:pane={issuePane} />
+        {/key}
       {:else if loaded}
         <div class="blank">
           {#if view === "focus"}
@@ -845,24 +852,6 @@
   .detail {
     min-height: 0;
     min-width: 0;
-  }
-
-  .issue {
-    padding: 14px 18px;
-  }
-
-  .issue h2 {
-    margin: 0 0 6px;
-    font-size: 17px;
-  }
-
-  .issue p {
-    margin: 0 0 8px;
-    color: var(--subtext);
-  }
-
-  .hint {
-    font-size: 12px;
   }
 
   .blank {

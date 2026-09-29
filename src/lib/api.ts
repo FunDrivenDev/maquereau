@@ -105,14 +105,37 @@ export interface LinkStatus {
   initiatives: Initiative[];
 }
 
+export interface Label {
+  name: string;
+  color: string;
+}
+
+/** Mirrors `Issue` in src-tauri/src/live.rs. */
 export interface Issue {
   key: string;
   title: string;
   url: string;
   state: string;
+  tone: Tone;
+  /** 0 none, 1 urgent … 4 low. */
   priority: number;
   initiatives: Initiative[];
+  /** Markdown. */
+  description: string;
+  project: string | null;
+  labels: Label[];
+  estimate: number | null;
+  /** `YYYY-MM-DD`. */
+  due_date: string | null;
+  /** ISO 8601. */
+  created_at: string;
+  /** ISO 8601. */
+  updated_at: string;
+  parent: { key: string; title: string } | null;
 }
+
+export const priorityLabel = (priority: number) =>
+  ["No priority", "Urgent", "High", "Medium", "Low"][priority] ?? "No priority";
 
 export interface Agent {
   name: string;

@@ -41,9 +41,10 @@ pub struct LinkStatus {
 }
 
 /// How a state reads at a glance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tone {
+    #[default]
     Open,
     Progress,
     Review,
@@ -52,15 +53,42 @@ pub enum Tone {
     Closed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Issue {
     pub key: String,
     pub title: String,
     pub url: String,
     pub state: String,
+    pub tone: Tone,
     /// Linear's priority: 0 none, 1 urgent … 4 low.
     pub priority: u8,
     pub initiatives: Vec<Initiative>,
+    /// Markdown, as written in Linear.
+    pub description: String,
+    pub project: Option<String>,
+    pub labels: Vec<Label>,
+    pub estimate: Option<f64>,
+    /// `YYYY-MM-DD`.
+    pub due_date: Option<String>,
+    /// ISO 8601.
+    pub created_at: String,
+    /// ISO 8601.
+    pub updated_at: String,
+    pub parent: Option<IssueRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Label {
+    pub name: String,
+    /// `#rrggbb`.
+    pub color: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IssueRef {
+    pub key: String,
+    pub title: String,
 }
 
 /// Something worth a notification.
