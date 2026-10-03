@@ -3,7 +3,8 @@
 //! and herdr session.
 //!
 //! The front end holds no state of its own: each command returns a `Snapshot`, and each
-//! one that changes something goes through `History::perform`, so it can be undone. A
+//! one that changes something calls its action in `actions`, which keeps the rules, then
+//! performs it through `History::perform`, so it can be undone. A
 //! background thread reads Linear, GitHub and herdr, and sends a new `Snapshot` as a
 //! `snapshot` event when it has.
 
@@ -64,26 +65,39 @@ fn now() -> Time {
 }
 
 impl App {
-    /// Runs `action` on the model, saves it, and returns the new snapshot.
+    /// The one way the model changes: `step` performs, undoes or redoes an action
+    /// through the history, and says whether it changed anything. The model is saved
+    /// when it did, and the new snapshot returned.
     fn update(
         &self,
-        action: impl FnOnce(&mut Inner) -> Result<(), String>,
+        step: impl FnOnce(&mut History, &mut Model, &Live) -> Result<bool, String>,
     ) -> Result<Snapshot, String> {
         let mut inner = self.inner.lock().unwrap();
-        action(&mut inner)?;
-        store::save(&self.dir.join(TOPICS), &inner.model.topics)?;
-        store::save(&self.dir.join(SETTINGS), &inner.model.settings)?;
+        let Inner {
+            model,
+            history,
+            live,
+            ..
+        } = &mut *inner;
+        if step(history, model, live)? {
+            store::save(&self.dir.join(TOPICS), &model.topics)?;
+            store::save(&self.dir.join(SETTINGS), &model.settings)?;
+        }
         Ok(Snapshot::of(&inner))
     }
 
-    /// Performs the action `action` builds from the model.
-    fn change(
+    /// Performs the action `act` builds from the model and what was last read from
+    /// outside; an action of `None` changes nothing.
+    fn perform<A: Into<Option<Action>>>(
         &self,
-        action: impl FnOnce(&mut Model) -> Result<Action, String>,
+        act: impl FnOnce(&mut Model, &Live) -> Result<A, String>,
     ) -> Result<Snapshot, String> {
-        self.update(|inner| {
-            let Action { label, change } = action(&mut inner.model)?;
-            inner.history.perform(&mut inner.model, label, change)
+        self.update(|history, model, live| {
+            let Some(Action { label, change }) = act(model, live)?.into() else {
+                return Ok(false);
+            };
+            history.perform(model, label, change)?;
+            Ok(true)
         })
     }
 }
@@ -146,94 +160,83 @@ fn create_topic(
     slot: Slot,
     activate: bool,
 ) -> Result<Snapshot, String> {
-    app.change(|model| actions::create_topic(model, now(), title, slot, activate))
+    app.perform(|model, _| actions::create_topic(model, now(), title, slot, activate))
 }
 
 /// Makes a topic of the backlog's Linear issue `key` and puts it in `slot`.
 #[tauri::command]
 fn topic_from_issue(app: State<App>, key: &str, slot: Slot) -> Result<Snapshot, String> {
-    app.update(
-        |Inner {
-             model,
-             history,
-             live,
-             ..
-         }| {
-            let Action { label, change } =
-                actions::topic_from_issue(model, now(), live, key, slot)?;
-            history.perform(model, label, change)
-        },
-    )
+    app.perform(|model, live| actions::topic_from_issue(model, now(), live, key, slot))
 }
 
 #[tauri::command]
 fn rename(app: State<App>, id: u64, title: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::rename(model, id, title))
+    app.perform(|model, _| actions::rename(model, id, title))
 }
 
 #[tauri::command]
 fn move_topic(app: State<App>, id: u64, slot: Slot) -> Result<Snapshot, String> {
-    app.change(|model| actions::move_topic(model, now(), id, slot))
+    app.perform(|model, _| actions::move_topic(model, now(), id, slot))
 }
 
 #[tauri::command]
 fn activate(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.change(|model| actions::activate(model, now(), id))
+    app.perform(|model, _| actions::activate(model, now(), id))
 }
 
 #[tauri::command]
 fn park(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.change(|model| actions::park(model, id))
+    app.perform(|model, _| actions::park(model, id))
 }
 
 #[tauri::command]
 fn finish(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.change(|model| actions::finish(model, now(), id))
+    app.perform(|model, _| actions::finish(model, now(), id))
 }
 
 #[tauri::command]
 fn rework(app: State<App>, id: u64, reason: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::rework(model, now(), id, reason))
+    app.perform(|model, _| actions::rework(model, now(), id, reason))
 }
 
 #[tauri::command]
 fn block(app: State<App>, id: u64, reason: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::block(model, now(), id, reason))
+    app.perform(|model, _| actions::block(model, now(), id, reason))
 }
 
 #[tauri::command]
 fn unblock(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.change(|model| actions::unblock(model, now(), id))
+    app.perform(|model, _| actions::unblock(model, now(), id))
 }
 
 #[tauri::command]
 fn add_step(app: State<App>, id: u64, text: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::add_step(model, id, text))
+    app.perform(|model, _| actions::add_step(model, id, text))
 }
 
 #[tauri::command]
 fn toggle_step(app: State<App>, id: u64, part: u64) -> Result<Snapshot, String> {
-    app.change(|model| actions::toggle_step(model, now(), id, part))
+    app.perform(|model, _| actions::toggle_step(model, now(), id, part))
 }
 
 #[tauri::command]
 fn move_step(app: State<App>, id: u64, part: u64, delta: i32) -> Result<Snapshot, String> {
-    app.change(|model| actions::move_step(model, id, part, delta))
+    app.perform(|model, _| actions::move_step(model, id, part, delta))
 }
 
 #[tauri::command]
 fn add_note(app: State<App>, id: u64, text: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::add_note(model, now(), id, text))
+    app.perform(|model, _| actions::add_note(model, now(), id, text))
 }
 
 #[tauri::command]
 fn add_link(app: State<App>, id: u64, text: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::add_link(model, id, text))
+    app.perform(|model, _| actions::add_link(model, id, text))
 }
 
 #[tauri::command]
 fn remove_part(app: State<App>, id: u64, part: u64) -> Result<Snapshot, String> {
-    app.change(|model| actions::remove_part(model, id, part))
+    app.perform(|model, _| actions::remove_part(model, id, part))
 }
 
 #[tauri::command]
@@ -242,42 +245,37 @@ fn set_initiative(
     id: u64,
     initiative: Option<Initiative>,
 ) -> Result<Snapshot, String> {
-    app.change(|model| actions::set_initiative(model, id, initiative))
+    app.perform(|model, _| actions::set_initiative(model, id, initiative))
 }
 
 #[tauri::command]
 fn set_session(app: State<App>, id: u64, session: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::set_session(model, id, session))
+    app.perform(|model, _| actions::set_session(model, id, session))
 }
 
 #[tauri::command]
 fn set_folder(app: State<App>, id: u64, folder: &str) -> Result<Snapshot, String> {
-    app.change(|model| actions::set_folder(model, id, folder))
+    app.perform(|model, _| actions::set_folder(model, id, folder))
 }
 
 #[tauri::command]
 fn remove(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.change(|model| actions::remove(model, id))
+    app.perform(|model, _| actions::remove(model, id))
 }
 
 #[tauri::command]
 fn set_settings(app: State<App>, settings: Settings) -> Result<Snapshot, String> {
-    app.update(
-        |Inner { model, history, .. }| match actions::set_settings(model, settings) {
-            Some(Action { label, change }) => history.perform(model, label, change),
-            None => Ok(()),
-        },
-    )
+    app.perform(|model, _| Ok(actions::set_settings(model, settings)))
 }
 
 #[tauri::command]
 fn undo(app: State<App>) -> Result<Snapshot, String> {
-    app.update(|Inner { model, history, .. }| history.undo(model).map(drop))
+    app.update(|history, model, _| Ok(history.undo(model)?.is_some()))
 }
 
 #[tauri::command]
 fn redo(app: State<App>) -> Result<Snapshot, String> {
-    app.update(|Inner { model, history, .. }| history.redo(model).map(drop))
+    app.update(|history, model, _| Ok(history.redo(model)?.is_some()))
 }
 
 /// The topics whose title matches `query`, best first.
@@ -329,10 +327,9 @@ fn open_url(app: State<App>, url: &str) -> Result<(), String> {
 fn set_linear_key(app: State<App>, key: &str) -> Result<Snapshot, String> {
     linear::set_key(key)?;
     app.refresh_now.store(true, Ordering::Relaxed);
-    app.update(|inner| {
-        inner.has_linear_key = !key.trim().is_empty();
-        Ok(())
-    })
+    let mut inner = app.inner.lock().unwrap();
+    inner.has_linear_key = !key.trim().is_empty();
+    Ok(Snapshot::of(&inner))
 }
 
 /// Reads herdr every `session_seconds`, and Linear and GitHub every `refresh_minutes` or
