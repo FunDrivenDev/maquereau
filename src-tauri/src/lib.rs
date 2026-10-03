@@ -21,6 +21,7 @@ mod model;
 mod search;
 mod settings;
 mod shell;
+mod sources;
 mod store;
 
 use std::path::PathBuf;
@@ -38,6 +39,7 @@ use live::Live;
 use model::{Initiative, Model, Slot, Stage, Time, Topic};
 use settings::Settings;
 use shell::Shell;
+use sources::Sources;
 
 const TOPICS: &str = "topics.json";
 const SETTINGS: &str = "settings.json";
@@ -46,6 +48,8 @@ const LIVE: &str = "live.json";
 struct App {
     dir: PathBuf,
     shell: Shell,
+    /// What is read from outside: Linear, GitHub and herdr.
+    sources: sources::Real,
     inner: Mutex<Inner>,
     /// Set to read Linear and GitHub at the next tick rather than at the next period.
     refresh_now: AtomicBool,
@@ -387,16 +391,16 @@ fn watch(handle: AppHandle) {
         if sessions {
             let mut after = if remote {
                 if gh_login.is_empty() {
-                    gh_login = github::me(&app.shell).unwrap_or_default();
+                    gh_login = app.sources.gh_login().unwrap_or_default();
                 }
-                let mut live = live::read_remote(&app.shell, &topics, &before, &gh_login);
+                let mut live = live::read_remote(&app.sources, &topics, &before, &gh_login);
                 live.refreshed_at = Some(now());
                 last_remote = Some(Instant::now());
                 live
             } else {
                 before.clone()
             };
-            after.sessions = live::read_sessions(&app.shell, &topics);
+            after.sessions = live::read_sessions(&app.sources, &topics);
             last_sessions = Some(Instant::now());
             // The first read after launch only sets what later reads compare with: live.json
             // may be days old.
@@ -477,18 +481,21 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            let shell = Shell::login();
+            let sources = sources::Real::new(shell.clone());
             let model = Model {
                 topics: store::load(&dir.join(TOPICS)),
                 settings: store::load(&dir.join(SETTINGS)),
             };
             app.manage(App {
-                shell: Shell::login(),
+                shell,
                 inner: Mutex::new(Inner {
                     model,
                     history: History::default(),
                     live: store::load(&dir.join(LIVE)),
-                    has_linear_key: linear::key().is_some(),
+                    has_linear_key: sources.linear_key().is_some(),
                 }),
+                sources,
                 dir,
                 refresh_now: AtomicBool::new(false),
             });
