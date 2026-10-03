@@ -3,6 +3,7 @@
   import type { Settings } from "./api";
   import Highlight from "./Highlight.svelte";
   import { listStep } from "./keys";
+  import { reveal } from "./scroll";
 
   // Every setting of the app, opened with ⌘,. A new setting needs its field in
   // src-tauri/src/settings.rs and its entry in `fields` below; nothing else configures the app.
@@ -116,6 +117,7 @@
   let shown = $state<{ field: Field; indices: number[] }[]>(fields.map((field) => ({ field, indices: [] })));
   let active = $state(0);
   let input: HTMLInputElement | undefined = $state();
+  let list: HTMLElement | undefined = $state();
 
   $effect(() => {
     input?.focus();
@@ -134,6 +136,11 @@
         return field ? [{ field, indices: m.indices }] : [];
       });
     });
+  });
+
+  $effect(() => {
+    const row = list?.querySelector<HTMLElement>(`[data-index="${active}"]`);
+    if (list && row) reveal(list, row);
   });
 
   function display(field: Field): string {
@@ -203,9 +210,9 @@
         autocomplete="off"
       />
     </header>
-    <ul>
+    <ul bind:this={list}>
       {#each shown as { field, indices }, i (field.key)}
-        <li class:active={i === active}>
+        <li class:active={i === active} data-index={i}>
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div class="field" onmousemove={() => (active = i)}>
             <span class="label"><Highlight text={field.label} {indices} /></span>
