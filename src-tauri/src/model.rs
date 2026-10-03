@@ -174,6 +174,28 @@ impl Model {
         id
     }
 
+    /// A new topic of `slot`, waiting in the backlog, with a session named after its title
+    /// in the folder of the settings. It takes a fresh id but is not added yet.
+    pub fn new_topic(&mut self, title: String, slot: Slot, now: Time) -> Topic {
+        Topic {
+            id: self.take_id(),
+            session: session_name(&title),
+            folder: self.settings.folder.clone(),
+            title,
+            slot,
+            stage: Stage::Queued,
+            created_at: now,
+            started_at: None,
+            finished_at: None,
+            steps: vec![],
+            notes: vec![],
+            links: vec![],
+            blocks: vec![],
+            reworks: vec![],
+            initiative: None,
+        }
+    }
+
     /// Applies `change` and returns its inverse.
     pub fn apply(&mut self, change: Change) -> Result<Change, String> {
         match change {
@@ -325,23 +347,7 @@ pub mod tests {
     use super::*;
 
     pub fn topic(model: &mut Model, title: &str, slot: Slot) -> Topic {
-        Topic {
-            id: model.take_id(),
-            title: title.into(),
-            slot,
-            stage: Stage::Queued,
-            created_at: 0,
-            started_at: None,
-            finished_at: None,
-            steps: vec![],
-            notes: vec![],
-            links: vec![],
-            blocks: vec![],
-            reworks: vec![],
-            initiative: None,
-            session: session_name(title),
-            folder: "~".into(),
-        }
+        model.new_topic(title.into(), slot, 0)
     }
 
     fn titles(model: &Model) -> Vec<&str> {

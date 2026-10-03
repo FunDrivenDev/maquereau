@@ -151,26 +151,6 @@ impl Snapshot {
     }
 }
 
-fn new_topic(model: &mut Model, title: String, slot: Slot) -> Topic {
-    Topic {
-        id: model.take_id(),
-        session: model::session_name(&title),
-        folder: model.settings.folder.clone(),
-        title,
-        slot,
-        stage: Stage::Queued,
-        created_at: now(),
-        started_at: None,
-        finished_at: None,
-        steps: vec![],
-        notes: vec![],
-        links: vec![],
-        blocks: vec![],
-        reworks: vec![],
-        initiative: None,
-    }
-}
-
 #[tauri::command]
 fn snapshot(app: State<App>) -> Snapshot {
     Snapshot::of(&app.inner.lock().unwrap())
@@ -187,7 +167,7 @@ fn create_topic(
 ) -> Result<Snapshot, String> {
     let title = required(title, "a title")?;
     app.change(|model| {
-        let topic = new_topic(model, title.clone(), slot);
+        let topic = model.new_topic(title.clone(), slot, now());
         let label = format!("Add “{title}”");
         if activate {
             let changes = model.activation(topic, now());
@@ -213,7 +193,7 @@ fn topic_from_issue(app: State<App>, key: &str, slot: Slot) -> Result<Snapshot, 
                 .chain(&live.sub_issues)
                 .find(|i| i.key == key)
                 .ok_or_else(|| format!("no issue {key}"))?;
-            let mut topic = new_topic(model, issue.title.clone(), slot);
+            let mut topic = model.new_topic(issue.title.clone(), slot, now());
             topic.links.push(Link {
                 id: model.take_id(),
                 url: issue.url.clone(),
