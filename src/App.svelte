@@ -776,6 +776,7 @@
 {:else if overlay === "settings"}
   <SettingsView
     settings={data.settings}
+    bounds={data.bounds}
     hasLinearKey={data.has_linear_key}
     onChange={changeSettings}
     onEdit={editSetting}

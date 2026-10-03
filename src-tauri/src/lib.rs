@@ -38,7 +38,7 @@ use actions::Action;
 use history::History;
 use live::Live;
 use model::{Initiative, Model, Slot, Stage, Time, Topic};
-use settings::Settings;
+use settings::{BOUNDS, Bounds, Settings};
 use shell::Shell;
 use sources::Sources;
 
@@ -127,6 +127,8 @@ struct Snapshot {
     /// What the backlog holds to pull: see `backlog::count`.
     backlog_count: usize,
     settings: Settings,
+    /// The range of each number setting.
+    bounds: Bounds,
     has_linear_key: bool,
     now: Time,
     /// The label of the action ⌘Z would undo.
@@ -165,6 +167,7 @@ impl Snapshot {
                 &linked,
             ),
             settings: inner.model.settings.clone(),
+            bounds: BOUNDS,
             has_linear_key: inner.has_linear_key,
             now,
             undo: inner.history.next_undo().map(str::to_owned),
@@ -460,7 +463,7 @@ pub fn run() {
             let sources = sources::Real::new(shell.clone());
             let model = Model {
                 topics: store::load(&dir.join(TOPICS)),
-                settings: store::load(&dir.join(SETTINGS)),
+                settings: Settings::load(&dir.join(SETTINGS)),
             };
             app.manage(App {
                 shell,
