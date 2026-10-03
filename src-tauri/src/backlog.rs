@@ -15,9 +15,11 @@ pub struct Entry {
 
 /// The issues assigned to Raphaël and their sub-issues, but those `linked` by an open
 /// topic, in preorder: each issue followed by its sub-issues, and issues side by side in
-/// the order of `rank`, then in the order given. An
-/// assigned issue whose parent is not listed shows at the top; any other sub-issue shows
-/// only under its parent.
+/// the order of `rank`, then in the order given. An assigned issue shows under the
+/// nearest of its listed ancestors that is assigned too, and at the top when none is: so
+/// every assigned issue shows exactly once, even when the issue between it and an
+/// assigned ancestor is someone else's and that ancestor is linked. Any other sub-issue
+/// shows only under its parent.
 pub fn tree(assigned: &[Issue], sub_issues: &[Issue], linked: &[String]) -> Vec<Entry> {
     let mut pool: Vec<&Issue> = Vec::new();
     for issue in assigned.iter().chain(sub_issues) {
@@ -27,13 +29,25 @@ pub fn tree(assigned: &[Issue], sub_issues: &[Issue], linked: &[String]) -> Vec<
     }
     pool.sort_by_key(|i| rank(i));
     let mut out = Vec::new();
+    let mine = |issue: &Issue| issue.mine || assigned.iter().any(|i| i.key == issue.key);
     for root in &pool {
-        let assigned = assigned.iter().any(|i| i.key == root.key);
-        if assigned && parent(&pool, root).is_none() {
+        if mine(root) && !ancestors(&pool, root).any(&mine) {
             walk(&pool, root, 0, &mut out);
         }
     }
     out
+}
+
+/// `issue`'s parent, its parent's parent…, as long as each is in `pool`.
+fn ancestors<'a>(pool: &'a [&'a Issue], issue: &'a Issue) -> impl Iterator<Item = &'a Issue> {
+    let mut next = Some(issue);
+    // A parent cycle cannot come from Linear; the bound keeps one from looping anyway.
+    std::iter::from_fn(move || {
+        let key = parent(pool, next?)?;
+        next = pool.iter().copied().find(|i| i.key == key);
+        next
+    })
+    .take(pool.len())
 }
 
 /// Where an issue goes among its siblings: the most urgent first, then in progress, ready,
@@ -182,6 +196,22 @@ mod tests {
         assert_eq!(
             shape(&tree(&assigned, &subs, &["A".into()])),
             [("A2", 0, 0)]
+        );
+    }
+
+    #[test]
+    fn an_assigned_issue_under_someone_elses_shows_when_the_assigned_ancestor_is_linked() {
+        // A and A1a are Raphaël's, A1 someone else's, and an open topic links A.
+        let assigned = [issue("A", None), issue("A1a", Some("A1"))];
+        let subs = [issue("A1", Some("A")), issue("A1a", Some("A1"))];
+        assert_eq!(
+            shape(&tree(&assigned, &subs, &["A".into()])),
+            [("A1a", 0, 0)]
+        );
+        // Unlinked, A1a shows once, under A1 under A.
+        assert_eq!(
+            shape(&tree(&assigned, &subs, &[])),
+            [("A", 0, 1), ("A1", 1, 1), ("A1a", 2, 0)]
         );
     }
 }
