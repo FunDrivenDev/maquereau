@@ -6,9 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::herdr::Session;
-use crate::links::{self, Kind};
 use crate::model::{Initiative, Stage, Time, Topic};
-use crate::sources::Sources;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -154,79 +152,8 @@ pub fn suggestions(topic: &Topic, live: &Live) -> Vec<Suggestion> {
 }
 
 /// Topics worth reading about: those not done.
-fn open_topics(topics: &[Topic]) -> impl Iterator<Item = &Topic> {
+pub fn open_topics(topics: &[Topic]) -> impl Iterator<Item = &Topic> {
     topics.iter().filter(|t| t.stage != Stage::Done)
-}
-
-/// Reads Linear and GitHub for the links of the open topics, Raphaël's assigned issues and
-/// the open initiatives. A source that fails keeps what was read before, with its error.
-pub fn read_remote(
-    sources: &impl Sources,
-    topics: &[Topic],
-    before: &Live,
-    gh_login: &str,
-) -> Live {
-    let mut live = before.clone();
-    live.errors.clear();
-    let key = sources.linear_key();
-    let mut links = BTreeMap::new();
-    for link in open_topics(topics).flat_map(|t| &t.links) {
-        if links.contains_key(&link.url) {
-            continue;
-        }
-        let status = match (link.kind, &key) {
-            (Kind::LinearIssue, Some(key)) => links::key(&link.url)
-                .ok_or_else(|| format!("{}: not a Linear issue", link.url))
-                .and_then(|issue| sources.linear_status(key, &issue)),
-            (Kind::PullRequest | Kind::GithubIssue, _) => {
-                sources.github_status(&link.url, link.kind, gh_login)
-            }
-            _ => continue,
-        };
-        match status {
-            Ok(status) => {
-                links.insert(link.url.clone(), status);
-            }
-            Err(e) => {
-                live.errors.push(e);
-                if let Some(old) = before.links.get(&link.url) {
-                    links.insert(link.url.clone(), old.clone());
-                }
-            }
-        }
-    }
-    live.links = links;
-    match &key {
-        Some(key) => {
-            match sources.assigned(key) {
-                Ok(issues) => live.assigned = issues,
-                Err(e) => live.errors.push(e),
-            }
-            match sources.sub_issues(key) {
-                Ok(issues) => live.sub_issues = issues,
-                Err(e) => live.errors.push(e),
-            }
-            match sources.initiatives(key) {
-                Ok(list) => live.initiatives = list,
-                Err(e) => live.errors.push(e),
-            }
-        }
-        None => live
-            .errors
-            .push("Linear: no API key; set one in Settings (⌘,)".into()),
-    }
-    live
-}
-
-/// Reads the herdr session of each open topic.
-pub fn read_sessions(sources: &impl Sources, topics: &[Topic]) -> BTreeMap<String, Session> {
-    let mut sessions = BTreeMap::new();
-    for topic in open_topics(topics) {
-        if !sessions.contains_key(&topic.session) {
-            sessions.insert(topic.session.clone(), sources.session(&topic.session));
-        }
-    }
-    sessions
 }
 
 /// What changed from `before` to `after` that Raphaël should hear about: new comments by
@@ -283,14 +210,14 @@ pub fn alerts(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::herdr::Agent;
+    use crate::links::Kind;
     use crate::model::tests::topic;
     use crate::model::{Link, Model, Slot};
-    use crate::sources::fake::Fake;
 
-    fn status(comments: u32) -> LinkStatus {
+    pub fn status(comments: u32) -> LinkStatus {
         LinkStatus {
             title: "BIM-1 Export".into(),
             state: "In Progress".into(),
@@ -303,7 +230,7 @@ mod tests {
         }
     }
 
-    fn with_agent(status: &str) -> Live {
+    pub fn with_agent(status: &str) -> Live {
         let mut live = Live::default();
         live.sessions.insert(
             "mq-export".into(),
@@ -385,115 +312,5 @@ mod tests {
         let done = alerts(&topics, &working, &with_agent("done"), true, true);
         assert_eq!(done[0].body, "claude has finished");
         assert!(alerts(&topics, &working, &blocked, true, false).is_empty());
-    }
-
-    /// A topic linking each of `urls`, with its kind read from the URL.
-    fn linking(model: &mut Model, title: &str, urls: &[&str]) -> Topic {
-        let mut t = topic(model, title, Slot::Feature);
-        for (id, url) in urls.iter().enumerate() {
-            let (url, kind) = links::parse(url).unwrap();
-            t.links.push(Link {
-                id: id as u64 + 10,
-                url,
-                kind,
-            });
-        }
-        t
-    }
-
-    const PR: &str = "https://github.com/o/r/pull/1";
-
-    #[test]
-    fn a_link_shared_by_two_topics_is_read_once() {
-        let mut model = Model::default();
-        let topics = [
-            linking(&mut model, "Export", &["BIM-1", PR, "https://example.com"]),
-            linking(&mut model, "Import", &["BIM-1", PR]),
-        ];
-        let sources = Fake::with_key();
-        sources.set_status("BIM-1", Ok(status(0)));
-        sources.set_status(PR, Ok(status(3)));
-        let live = read_remote(&sources, &topics, &Live::default(), "me");
-        assert_eq!(sources.status_reads.get(), 2);
-        assert_eq!(live.links.keys().collect::<Vec<_>>(), ["BIM-1", PR]);
-        assert!(live.errors.is_empty());
-    }
-
-    #[test]
-    fn a_failed_read_keeps_the_last_good_status_and_says_why() {
-        let mut model = Model::default();
-        let topics = [linking(&mut model, "Export", &["BIM-1", PR])];
-        let sources = Fake::with_key();
-        sources.set_status("BIM-1", Ok(status(1)));
-        sources.set_status(PR, Ok(status(2)));
-        let before = read_remote(&sources, &topics, &Live::default(), "me");
-        sources.set_status(PR, Err("gh: offline".into()));
-        sources.set_status("BIM-1", Ok(status(4)));
-        let after = read_remote(&sources, &topics, &before, "me");
-        assert_eq!(after.links[PR], status(2));
-        assert_eq!(after.links["BIM-1"], status(4));
-        assert_eq!(after.errors, ["gh: offline"]);
-        sources.set_status(PR, Ok(status(5)));
-        let again = read_remote(&sources, &topics, &after, "me");
-        assert!(again.errors.is_empty(), "the errors of a read are cleared");
-        assert_eq!(again.links[PR], status(5));
-    }
-
-    #[test]
-    fn without_a_linear_key_linear_is_skipped_with_an_error_and_github_still_read() {
-        let mut model = Model::default();
-        let topics = [linking(&mut model, "Export", &["BIM-1", PR])];
-        let sources = Fake {
-            key: None,
-            ..Fake::with_key()
-        };
-        sources.set_status(PR, Ok(status(0)));
-        let before = Live {
-            assigned: vec![Issue::default()],
-            links: [("BIM-1".into(), status(1))].into(),
-            ..Live::default()
-        };
-        let live = read_remote(&sources, &topics, &before, "me");
-        assert_eq!(live.links.keys().collect::<Vec<_>>(), [PR]);
-        assert_eq!(
-            live.errors,
-            ["Linear: no API key; set one in Settings (⌘,)"]
-        );
-        assert_eq!(live.assigned, before.assigned, "what was read before stays");
-        assert_eq!(sources.key_reads.get(), 1);
-    }
-
-    #[test]
-    fn a_failing_linear_list_keeps_the_last_one() {
-        let mut model = Model::default();
-        let topics = [topic(&mut model, "Export", Slot::Feature)];
-        let before = Live {
-            assigned: vec![Issue::default()],
-            ..Live::default()
-        };
-        let sources = Fake {
-            assigned: Err("Linear: down".into()),
-            ..Fake::with_key()
-        };
-        let live = read_remote(&sources, &topics, &before, "me");
-        assert_eq!(live.assigned, before.assigned);
-        assert_eq!(live.errors, ["Linear: down"]);
-    }
-
-    #[test]
-    fn each_open_session_is_read_once() {
-        let mut model = Model::default();
-        let topics = [
-            topic(&mut model, "Export", Slot::Feature),
-            topic(&mut model, "Export", Slot::BugRun),
-        ];
-        let sources = Fake::with_key();
-        sources.set_session(
-            "mq-export",
-            with_agent("blocked").sessions["mq-export"].clone(),
-        );
-        let sessions = read_sessions(&sources, &topics);
-        assert_eq!(sources.session_reads.get(), 1);
-        assert_eq!(sessions["mq-export"].agents[0].status, "blocked");
     }
 }

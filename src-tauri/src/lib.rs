@@ -18,6 +18,7 @@ mod linear;
 mod links;
 mod live;
 mod model;
+mod poll;
 mod search;
 mod settings;
 mod shell;
@@ -365,14 +366,12 @@ fn set_linear_key(app: State<App>, key: &str) -> Result<Snapshot, String> {
     Ok(Snapshot::of(&inner))
 }
 
-/// Reads herdr every `session_seconds`, and Linear and GitHub every `refresh_minutes` or
-/// when asked; sends the new snapshot and notifies what changed.
+/// Ticks the poller every second: it reads herdr every `session_seconds`, and Linear and
+/// GitHub every `refresh_minutes` or when asked; what it read is saved and sent as a new
+/// snapshot, and what changed notified.
 fn watch(handle: AppHandle) {
     let app = handle.state::<App>();
-    let mut gh_login = String::new();
-    let mut last_sessions: Option<Instant> = None;
-    let mut last_remote: Option<Instant> = None;
-    let mut first = true;
+    let mut poller = poll::Poller::default();
     loop {
         let (topics, settings, before) = {
             let inner = app.inner.lock().unwrap();
@@ -382,46 +381,22 @@ fn watch(handle: AppHandle) {
                 inner.live.clone(),
             )
         };
-        let due = |last: Option<Instant>, every: u64| {
-            last.is_none_or(|t| t.elapsed() >= Duration::from_secs(every))
-        };
-        let remote = app.refresh_now.swap(false, Ordering::Relaxed)
-            || due(last_remote, u64::from(settings.refresh_minutes.max(1)) * 60);
-        let sessions = remote || due(last_sessions, u64::from(settings.session_seconds.max(5)));
-        if sessions {
-            let mut after = if remote {
-                if gh_login.is_empty() {
-                    gh_login = app.sources.gh_login().unwrap_or_default();
-                }
-                let mut live = live::read_remote(&app.sources, &topics, &before, &gh_login);
-                live.refreshed_at = Some(now());
-                last_remote = Some(Instant::now());
-                live
-            } else {
-                before.clone()
-            };
-            after.sessions = live::read_sessions(&app.sources, &topics);
-            last_sessions = Some(Instant::now());
-            // The first read after launch only sets what later reads compare with: live.json
-            // may be days old.
-            let alerts = if !first {
-                live::alerts(
-                    &topics,
-                    &before,
-                    &after,
-                    settings.notify_comments,
-                    settings.notify_sessions,
-                )
-            } else {
-                vec![]
-            };
-            first = false;
-            for alert in alerts {
+        let refresh_now = app.refresh_now.swap(false, Ordering::Relaxed);
+        let clock = || (Instant::now(), now());
+        if let Some(read) = poller.tick(
+            &app.sources,
+            clock,
+            refresh_now,
+            &topics,
+            &settings,
+            &before,
+        ) {
+            for alert in read.alerts {
                 let _ = app.shell.notify(&alert.title, &alert.body);
             }
             let snapshot = {
                 let mut inner = app.inner.lock().unwrap();
-                inner.live = after;
+                inner.live = read.live;
                 let _ = store::save(&app.dir.join(LIVE), &inner.live);
                 Snapshot::of(&inner)
             };
