@@ -575,10 +575,7 @@
       id: "park",
       label: "Park the topic in the backlog",
       keys: ["p"],
-      run: withTopic((t) => {
-        if (t.stage !== "active") return show("Only a topic in its slot can be parked");
-        run(api.park(t.id));
-      }),
+      run: withTopic((t) => run(api.park(t.id))),
     },
     {
       id: "move",

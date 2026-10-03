@@ -141,9 +141,13 @@ pub fn activate(model: &mut Model, now: Time, id: u64) -> Result<Action, String>
     ))
 }
 
-/// Sends a topic back to the backlog.
+/// Sends the active topic of its slot back to the backlog. A done topic stays done, its
+/// cycle time ended: reopening it is `activate` or `rework`.
 pub fn park(model: &mut Model, id: u64) -> Result<Action, String> {
     edit(model, id, |topic, _| {
+        if topic.stage != Stage::Active {
+            return Err("Only a topic in its slot can be parked".into());
+        }
         topic.stage = Stage::Queued;
         Ok(format!("Park “{}”", topic.title))
     })
@@ -490,6 +494,20 @@ mod tests {
             (a.reworks[0].reason.as_str(), a.reworks[0].at),
             ("Reopened", 3)
         );
+    }
+
+    #[test]
+    fn only_an_active_topic_parks() {
+        let (mut model, mut history) = setup();
+        let refused = Err("Only a topic in its slot can be parked".into());
+        assert_eq!(park(&mut model, 0), refused);
+        perform(&mut model, &mut history, |m| activate(m, 1, 0));
+        perform(&mut model, &mut history, |m| park(m, 0));
+        let a = get(&model, 0);
+        assert_eq!((a.stage, a.started_at), (Stage::Queued, Some(1)));
+        perform(&mut model, &mut history, |m| finish(m, 2, 0));
+        assert_eq!(park(&mut model, 0), refused);
+        assert_eq!(get(&model, 0).finished_at, Some(2));
     }
 
     #[test]
