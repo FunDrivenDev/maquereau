@@ -87,18 +87,23 @@ impl App {
     }
 
     /// Performs the action `act` builds from the model and what was last read from
-    /// outside; an action of `None` changes nothing.
+    /// outside; an action of `None` changes nothing. The snapshot names the topic the
+    /// action created, if any.
     fn perform<A: Into<Option<Action>>>(
         &self,
         act: impl FnOnce(&mut Model, &Live) -> Result<A, String>,
     ) -> Result<Snapshot, String> {
-        self.update(|history, model, live| {
-            let Some(Action { label, change }) = act(model, live)?.into() else {
+        let mut created = None;
+        let mut snapshot = self.update(|history, model, live| {
+            let Some(action) = act(model, live)?.into() else {
                 return Ok(false);
             };
-            history.perform(model, label, change)?;
+            history.perform(model, action.label, action.change)?;
+            created = action.created;
             Ok(true)
-        })
+        })?;
+        snapshot.created = created;
+        Ok(snapshot)
     }
 }
 
@@ -121,6 +126,9 @@ struct Snapshot {
     undo: Option<String>,
     /// The label of the action ⌘⇧Z would redo.
     redo: Option<String>,
+    /// The topic the command returning this snapshot created, for the front end to show;
+    /// `None` in every other snapshot.
+    created: Option<u64>,
 }
 
 impl Snapshot {
@@ -150,6 +158,7 @@ impl Snapshot {
             now,
             undo: inner.history.next_undo().map(str::to_owned),
             redo: inner.history.next_redo().map(str::to_owned),
+            created: None,
         }
     }
 }

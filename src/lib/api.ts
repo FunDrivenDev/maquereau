@@ -213,6 +213,8 @@ export interface Snapshot {
   undo: string | null;
   /** The label of the action ⌘⇧Z would redo. */
   redo: string | null;
+  /** The topic the command returning this snapshot created; null in every other one. */
+  created: number | null;
 }
 
 export interface Match {

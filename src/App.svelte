@@ -60,6 +60,7 @@
     now: 0,
     undo: null,
     redo: null,
+    created: null,
   });
   let loaded = $state(false);
   let view = $state<View>("focus");
@@ -273,7 +274,7 @@
         submit: (title) => {
           const activate = inFocus && !activeOf(slot);
           run(api.createTopic(title, slot, activate), (next) => {
-            const topic = [...next.topics].reverse().find((t) => t.title === title);
+            const topic = next.topics.find((t) => t.id === next.created);
             if (topic) reach(topic);
             return activate ? undoable(next) : `Parked in the backlog · ↵ there puts it in its slot · ⌘Z to undo`;
           });
