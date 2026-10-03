@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import * as api from "./lib/api";
   import { type Initiative, type Issue, type Settings, type Slot, slots, type Snapshot, type Topic } from "./lib/api";
@@ -37,33 +38,9 @@
     pick: (value: unknown) => void;
   }
 
-  let data = $state<Snapshot>({
-    topics: [],
-    times: [],
-    suggestions: [],
-    stats: [],
-    live: { links: {}, assigned: [], sub_issues: [], initiatives: [], sessions: {}, refreshed_at: null, errors: [] },
-    backlog: [],
-    backlog_count: 0,
-    settings: {
-      theme: "system",
-      search_limit: 50,
-      terminal: "ghostty",
-      folder: "~/Code",
-      refresh_minutes: 5,
-      session_seconds: 15,
-      notify_sessions: true,
-      notify_comments: true,
-      stats_days: 90,
-      backlog_done: 30,
-    },
-    has_linear_key: false,
-    now: 0,
-    undo: null,
-    redo: null,
-    created: null,
-  });
-  let loaded = $state(false);
+  // The first snapshot comes from main.ts, read before the app mounts: nothing shows until then.
+  let { snapshot }: { snapshot: Snapshot } = $props();
+  let data = $state(untrack(() => snapshot));
   let view = $state<View>("focus");
   let slotIndex = $state(0);
   let backlogKey = $state<string | null>(null);
@@ -153,7 +130,6 @@
   function apply(next: Snapshot) {
     const before = backlogIndex;
     data = next;
-    loaded = true;
     if (backlogKey === null || !backlogRows.some((r) => r.key === backlogKey)) {
       backlogKey = backlogRows[Math.max(0, Math.min(before, backlogRows.length - 1))]?.key ?? null;
     }
@@ -213,7 +189,7 @@
   });
 
   $effect(() => {
-    api.snapshot().then(apply, (e) => show(String(e), true));
+    untrack(() => apply(data));
     const unlistenMenu = api.onMenu((id) => {
       if (id === "settings") overlay = overlay === "settings" ? null : "settings";
       else if (id === "undo") undo();
@@ -741,13 +717,11 @@
             {/if}
           </button>
         {:else}
-          {#if loaded}
-            <p class="blank">
-              The backlog is empty. Parked topics land here{data.has_linear_key
-                ? ", with the Linear issues assigned to you that no topic links."
-                : "; set a Linear API key (⌘,) to see your assigned issues too."}
-            </p>
-          {/if}
+          <p class="blank">
+            The backlog is empty. Parked topics land here{data.has_linear_key
+              ? ", with the Linear issues assigned to you that no topic links."
+              : "; set a Linear API key (⌘,) to see your assigned issues too."}
+          </p>
         {/each}
       {/if}
     </aside>
@@ -773,7 +747,7 @@
             bind:pane={issuePane}
           />
         {/key}
-      {:else if loaded}
+      {:else}
         <div class="blank">
           {#if view === "focus"}
             <p>
