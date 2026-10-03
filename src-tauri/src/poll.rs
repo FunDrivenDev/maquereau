@@ -45,10 +45,10 @@ impl Default for Poller {
 
 impl Poller {
     /// Reads what is due, given `before`, what was last read: the herdr sessions every
-    /// `session_seconds` (5 at least), and Linear and GitHub as well every
-    /// `refresh_minutes` (1 at least) or when `refresh_now`. `None` when nothing was due.
-    /// `clock` gives the time now, for the scheduling and for `refreshed_at`; it is asked
-    /// after each read, so a period runs from the end of the read.
+    /// `session_seconds`, and Linear and GitHub as well every `refresh_minutes` or when
+    /// `refresh_now`, both already within `BOUNDS`. `None` when nothing was due. `clock`
+    /// gives the time now, for the scheduling and for `refreshed_at`; it is asked after
+    /// each read, so a period runs from the end of the read.
     pub fn tick(
         &mut self,
         sources: &impl Sources,
@@ -62,16 +62,8 @@ impl Poller {
         let due = |last: Option<Instant>, every: u64| {
             last.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(every))
         };
-        let remote = refresh_now
-            || due(
-                self.last_remote,
-                u64::from(settings.refresh_minutes.max(1)) * 60,
-            );
-        let sessions = remote
-            || due(
-                self.last_sessions,
-                u64::from(settings.session_seconds.max(5)),
-            );
+        let remote = refresh_now || due(self.last_remote, u64::from(settings.refresh_minutes) * 60);
+        let sessions = remote || due(self.last_sessions, u64::from(settings.session_seconds));
         if !sessions {
             return None;
         }
@@ -389,21 +381,6 @@ mod tests {
             1,
             "the gh login is read once"
         );
-    }
-
-    #[test]
-    fn the_periods_are_clamped_to_five_seconds_and_one_minute() {
-        let mut bench = Bench::new(Settings {
-            session_seconds: 0,
-            refresh_minutes: 0,
-            ..Settings::default()
-        });
-        let mut at = |secs| bench.at(secs, false);
-        assert_eq!(at(0), (true, true));
-        assert_eq!(at(4), (false, false));
-        assert_eq!(at(5), (true, false));
-        assert_eq!(at(59), (true, false));
-        assert_eq!(at(60), (true, true));
     }
 
     #[test]
