@@ -196,10 +196,19 @@ export interface Settings {
   backlog_done: number;
 }
 
+/** An initiative a topic could be linked to; see `suggestions` in src-tauri/src/live.rs. */
+export interface Suggestion {
+  initiative: Initiative;
+  /** One of the topic's linked issues belongs to it. */
+  from_issues: boolean;
+}
+
 export interface Snapshot {
   topics: Topic[];
   /** The flow times of each topic, as `[id, times]` pairs. */
   times: [number, Times][];
+  /** The initiatives each topic could be linked to, theirs first, as `[id, suggestions]` pairs. */
+  suggestions: [number, Suggestion[]][];
   stats: SlotStats[];
   live: Live;
   /** The assigned Linear issues no open topic links to, and their sub-issues. */

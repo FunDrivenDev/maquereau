@@ -124,6 +124,36 @@ pub struct Alert {
     pub body: String,
 }
 
+/// An initiative a topic could be linked to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Suggestion {
+    pub initiative: Initiative,
+    /// One of the topic's linked issues belongs to it.
+    pub from_issues: bool,
+}
+
+/// The initiatives `topic` could be linked to, each once: those of its linked issues
+/// first, in the order of its links, then the others read from Linear.
+pub fn suggestions(topic: &Topic, live: &Live) -> Vec<Suggestion> {
+    let from_issues = topic
+        .links
+        .iter()
+        .filter_map(|l| live.links.get(&l.url))
+        .flat_map(|s| &s.initiatives)
+        .map(|i| (i, true));
+    let others = live.initiatives.iter().map(|i| (i, false));
+    let mut out: Vec<Suggestion> = Vec::new();
+    for (initiative, from_issues) in from_issues.chain(others) {
+        if !out.iter().any(|s| s.initiative.id == initiative.id) {
+            out.push(Suggestion {
+                initiative: initiative.clone(),
+                from_issues,
+            });
+        }
+    }
+    out
+}
+
 /// Topics worth reading about: those not done.
 fn open_topics(topics: &[Topic]) -> impl Iterator<Item = &Topic> {
     topics.iter().filter(|t| t.stage != Stage::Done)
@@ -300,6 +330,41 @@ mod tests {
         let found = alerts(&[t.clone()], &before, &after, true, true);
         assert_eq!(found[0].title, "New comment · Export");
         assert!(alerts(&[t], &before, &after, false, true).is_empty());
+    }
+
+    #[test]
+    fn suggests_the_initiatives_of_the_linked_issues_first_each_once() {
+        let initiative = |id: &str| Initiative {
+            id: id.into(),
+            name: id.into(),
+            url: String::new(),
+        };
+        let mut model = Model::default();
+        let mut t = topic(&mut model, "Export", Slot::Feature);
+        for (id, url) in [(9, "BIM-1"), (10, "BIM-2"), (11, "BIM-3")] {
+            t.links.push(Link {
+                id,
+                url: url.into(),
+                kind: Kind::LinearIssue,
+            });
+        }
+        let mut live = Live {
+            initiatives: vec![initiative("a"), initiative("b"), initiative("c")],
+            ..Live::default()
+        };
+        assert!(suggestions(&t, &live).iter().all(|s| !s.from_issues));
+        let mut one = status(0);
+        one.initiatives = vec![initiative("c"), initiative("d")];
+        let mut two = status(0);
+        two.initiatives = vec![initiative("d"), initiative("a")];
+        live.links.insert("BIM-1".into(), one);
+        live.links.insert("BIM-2".into(), two);
+        let found = suggestions(&t, &live);
+        let found: Vec<(&str, bool)> = found
+            .iter()
+            .map(|s| (s.initiative.id.as_str(), s.from_issues))
+            .collect();
+        assert_eq!(found, [("c", true), ("d", true), ("a", true), ("b", false)]);
     }
 
     #[test]

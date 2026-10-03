@@ -113,6 +113,8 @@ struct Snapshot {
     topics: Vec<Topic>,
     /// The flow times of each topic, by id.
     times: Vec<(u64, flow::Times)>,
+    /// The initiatives each topic could be linked to, by id.
+    suggestions: Vec<(u64, Vec<live::Suggestion>)>,
     stats: Vec<flow::SlotStats>,
     live: Live,
     /// The assigned Linear issues no open topic links to, and their sub-issues, as a tree.
@@ -144,6 +146,10 @@ impl Snapshot {
         Self {
             topics: topics.clone(),
             times: topics.iter().map(|t| (t.id, flow::times(t, now))).collect(),
+            suggestions: topics
+                .iter()
+                .map(|t| (t.id, live::suggestions(t, &inner.live)))
+                .collect(),
             stats: flow::stats(topics, now, inner.model.settings.stats_days),
             live: inner.live.clone(),
             backlog: backlog::tree(&inner.live.assigned, &inner.live.sub_issues, &linked),
