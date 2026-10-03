@@ -1,6 +1,7 @@
 <script lang="ts" generics="T">
   import * as api from "./api";
   import Highlight from "./Highlight.svelte";
+  import { listStep } from "./keys";
   import { reveal } from "./scroll";
 
   // Picks one option with a fuzzy filter: ↑ ↓ move, ↵ picks, esc cancels.
@@ -45,12 +46,10 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    const down = event.key === "ArrowDown" || (event.ctrlKey && (event.key === "n" || event.key === "j"));
-    const up = event.key === "ArrowUp" || (event.ctrlKey && (event.key === "p" || event.key === "k"));
-    if (down || up) {
+    const step = listStep(event, active, shown.length);
+    if (step !== null) {
       event.preventDefault();
-      const n = shown.length;
-      if (n) active = (active + (down ? 1 : n - 1)) % n;
+      active = step;
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(active);

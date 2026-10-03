@@ -3,6 +3,7 @@
   import { type Match, slotLabel, type Topic } from "./api";
   import { type Command, glyph } from "./commands";
   import Highlight from "./Highlight.svelte";
+  import { listStep } from "./keys";
   import { reveal } from "./scroll";
 
   // Fuzzy search over the topics; a query starting with `>` searches the commands instead.
@@ -71,12 +72,10 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    const next = event.key === "ArrowDown" || (event.ctrlKey && (event.key === "n" || event.key === "j"));
-    const prev = event.key === "ArrowUp" || (event.ctrlKey && (event.key === "p" || event.key === "k"));
-    if (next || prev) {
+    const step = listStep(event, active, rows.length);
+    if (step !== null) {
       event.preventDefault();
-      const n = rows.length;
-      if (n) active = (active + (next ? 1 : n - 1)) % n;
+      active = step;
     } else if (event.key === "Enter") {
       event.preventDefault();
       choose(rows[active]);
