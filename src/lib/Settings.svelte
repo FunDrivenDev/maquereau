@@ -103,6 +103,15 @@
       step: 7,
     },
     {
+      key: "backlog_done",
+      label: "Done topics in the backlog",
+      description: "How many done topics the backlog lists, the most recently finished first.",
+      kind: "number",
+      min: 0,
+      max: 500,
+      step: 10,
+    },
+    {
       key: "search_limit",
       label: "Search results",
       description: "How many results a search shows at most.",

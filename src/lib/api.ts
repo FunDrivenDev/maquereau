@@ -193,6 +193,7 @@ export interface Settings {
   notify_sessions: boolean;
   notify_comments: boolean;
   stats_days: number;
+  backlog_done: number;
 }
 
 export interface Snapshot {
@@ -203,6 +204,8 @@ export interface Snapshot {
   live: Live;
   /** The assigned Linear issues no open topic links to, and their sub-issues. */
   backlog: BacklogEntry[];
+  /** The queued topics plus the open issues assigned to Raphaël that no open topic links. */
+  backlog_count: number;
   settings: Settings;
   has_linear_key: boolean;
   now: Time;

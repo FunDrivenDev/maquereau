@@ -43,6 +43,7 @@
     stats: [],
     live: { links: {}, assigned: [], sub_issues: [], initiatives: [], sessions: {}, refreshed_at: null, errors: [] },
     backlog: [],
+    backlog_count: 0,
     settings: {
       theme: "system",
       search_limit: 50,
@@ -53,6 +54,7 @@
       notify_sessions: true,
       notify_comments: true,
       stats_days: 90,
+      backlog_done: 30,
     },
     has_linear_key: false,
     now: 0,
@@ -89,7 +91,8 @@
     ...data.topics
       .filter((t) => t.stage === "done")
       .sort((a, b) => (b.finished_at ?? 0) - (a.finished_at ?? 0))
-      .slice(0, 30)
+      // The selected one stays listed beyond the cap, as when the palette reaches an old topic.
+      .filter((t, i) => i < data.settings.backlog_done || `t${t.id}` === backlogKey)
       .map((topic): BacklogRow => ({ kind: "topic", key: `t${topic.id}`, topic })),
   ]);
   const priorityMark = ["·", "‼", "▮▮▮", "▮▮▯", "▮▯▯"];
@@ -667,10 +670,7 @@
     <nav data-tauri-drag-region>
       <span class:current={view === "focus"}>Focus</span>
       <span class:current={view === "backlog"}>
-        Backlog <small>
-          {data.topics.filter((t) => t.stage === "queued").length +
-          data.backlog.filter((e) => e.issue.tone !== "done" && e.issue.tone !== "closed").length}
-        </small>
+        Backlog <small>{data.backlog_count}</small>
       </span>
     </nav>
     <span class="status" data-tauri-drag-region>

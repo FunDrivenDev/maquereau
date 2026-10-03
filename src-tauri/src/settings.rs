@@ -26,6 +26,8 @@ pub struct Settings {
     pub notify_comments: bool,
     /// How many days of done topics the flow stats count.
     pub stats_days: u32,
+    /// How many done topics the backlog lists, the most recently finished first.
+    pub backlog_done: u32,
 }
 
 impl Default for Settings {
@@ -40,6 +42,7 @@ impl Default for Settings {
             notify_sessions: true,
             notify_comments: true,
             stats_days: 90,
+            backlog_done: 30,
         }
     }
 }
