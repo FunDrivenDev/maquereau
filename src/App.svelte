@@ -43,6 +43,7 @@
     stats: [],
     live: { links: {}, assigned: [], sub_issues: [], initiatives: [], sessions: {}, refreshed_at: null, errors: [] },
     backlog: [],
+    backlog_count: 0,
     settings: {
       theme: "system",
       search_limit: 50,
@@ -667,10 +668,7 @@
     <nav data-tauri-drag-region>
       <span class:current={view === "focus"}>Focus</span>
       <span class:current={view === "backlog"}>
-        Backlog <small>
-          {data.topics.filter((t) => t.stage === "queued").length +
-          data.backlog.filter((e) => e.issue.tone !== "done" && e.issue.tone !== "closed").length}
-        </small>
+        Backlog <small>{data.backlog_count}</small>
       </span>
     </nav>
     <span class="status" data-tauri-drag-region>

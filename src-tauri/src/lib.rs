@@ -112,6 +112,8 @@ struct Snapshot {
     live: Live,
     /// The assigned Linear issues no open topic links to, and their sub-issues, as a tree.
     backlog: Vec<backlog::Entry>,
+    /// What the backlog holds to pull: see `backlog::count`.
+    backlog_count: usize,
     settings: Settings,
     has_linear_key: bool,
     now: Time,
@@ -137,6 +139,12 @@ impl Snapshot {
             stats: flow::stats(topics, now, inner.model.settings.stats_days),
             live: inner.live.clone(),
             backlog: backlog::tree(&inner.live.assigned, &inner.live.sub_issues, &linked),
+            backlog_count: backlog::count(
+                topics,
+                &inner.live.assigned,
+                &inner.live.sub_issues,
+                &linked,
+            ),
             settings: inner.model.settings.clone(),
             has_linear_key: inner.has_linear_key,
             now,

@@ -1,8 +1,10 @@
-//! The Linear issues of the backlog, as a tree of issues and their sub-issues.
+//! The Linear issues of the backlog, as a tree of issues and their sub-issues, and the
+//! size of the backlog.
 
 use serde::Serialize;
 
 use crate::live::{Issue, StateType};
+use crate::model::{Stage, Topic};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Entry {
@@ -48,6 +50,26 @@ fn ancestors<'a>(pool: &'a [&'a Issue], issue: &'a Issue) -> impl Iterator<Item 
         next
     })
     .take(pool.len())
+}
+
+/// How much the backlog holds to pull: the queued topics, plus the issues assigned to
+/// Raphaël, neither done nor canceled, that no open topic `linked`. The sub-issues listed
+/// in the tree only as someone else's, or done, do not count.
+pub fn count(
+    topics: &[Topic],
+    assigned: &[Issue],
+    sub_issues: &[Issue],
+    linked: &[String],
+) -> usize {
+    let queued = topics.iter().filter(|t| t.stage == Stage::Queued).count();
+    let mut keys: Vec<&str> = Vec::new();
+    for issue in assigned.iter().chain(sub_issues.iter().filter(|i| i.mine)) {
+        let open = !matches!(issue.state_type, StateType::Completed | StateType::Canceled);
+        if open && !linked.contains(&issue.key) && !keys.contains(&issue.key.as_str()) {
+            keys.push(&issue.key);
+        }
+    }
+    queued + keys.len()
 }
 
 /// Where an issue goes among its siblings: the most urgent first, then in progress, ready,
@@ -99,6 +121,8 @@ fn walk(pool: &[&Issue], issue: &Issue, depth: u8, out: &mut Vec<Entry>) {
 mod tests {
     use super::*;
     use crate::live::IssueRef;
+    use crate::model::tests::topic;
+    use crate::model::{Model, Slot};
 
     fn issue(key: &str, parent: Option<&str>) -> Issue {
         Issue {
@@ -212,6 +236,50 @@ mod tests {
         assert_eq!(
             shape(&tree(&assigned, &subs, &[])),
             [("A", 0, 1), ("A1", 1, 1), ("A1a", 2, 0)]
+        );
+    }
+
+    #[test]
+    fn the_count_is_the_queued_topics_and_the_open_unlinked_issues_assigned_to_raphael() {
+        let mut model = Model::default();
+        let queued = topic(&mut model, "queued", Slot::Feature);
+        let active = Topic {
+            stage: Stage::Active,
+            ..topic(&mut model, "active", Slot::BugRun)
+        };
+        let done = Topic {
+            stage: Stage::Done,
+            ..topic(&mut model, "done", Slot::Tooling)
+        };
+        let assigned = [
+            issue("A", None),
+            issue("B", None),
+            Issue {
+                state_type: StateType::Canceled,
+                ..issue("C", None)
+            },
+        ];
+        let subs = [
+            // Someone else's, in the tree under A.
+            issue("A1", Some("A")),
+            // Raphaël's, also in `assigned`: counted once.
+            Issue {
+                mine: true,
+                ..issue("B", None)
+            },
+            Issue {
+                mine: true,
+                ..issue("A2", Some("A"))
+            },
+            Issue {
+                mine: true,
+                state_type: StateType::Completed,
+                ..issue("A3", Some("A"))
+            },
+        ];
+        assert_eq!(
+            count(&[queued, active, done], &assigned, &subs, &["B".into()]),
+            1 + 2 // queued; A and A2
         );
     }
 }
