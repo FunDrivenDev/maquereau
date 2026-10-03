@@ -3,10 +3,12 @@
 //! and herdr session.
 //!
 //! The front end holds no state of its own: each command returns a `Snapshot`, and each
-//! one that changes something goes through `History::perform`, so it can be undone. A
+//! one that changes something calls its action in `actions`, which keeps the rules, then
+//! performs it through `History::perform`, so it can be undone. A
 //! background thread reads Linear, GitHub and herdr, and sends a new `Snapshot` as a
 //! `snapshot` event when it has.
 
+mod actions;
 mod backlog;
 mod flow;
 mod github;
@@ -30,9 +32,10 @@ use serde::Serialize;
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 
+use actions::Action;
 use history::History;
 use live::Live;
-use model::{Block, Change, Initiative, Link, Model, Note, Rework, Slot, Stage, Step, Time, Topic};
+use model::{Initiative, Model, Slot, Stage, Time, Topic};
 use settings::Settings;
 use shell::Shell;
 
@@ -61,48 +64,40 @@ fn now() -> Time {
         .map_or(0, |d| d.as_secs() as Time)
 }
 
-fn required(text: &str, what: &str) -> Result<String, String> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err(format!("{what} is needed"));
-    }
-    Ok(text.to_owned())
-}
-
 impl App {
-    /// Runs `action` on the model, saves it, and returns the new snapshot.
+    /// The one way the model changes: `step` performs, undoes or redoes an action
+    /// through the history, and says whether it changed anything. The model is saved
+    /// when it did, and the new snapshot returned.
     fn update(
         &self,
-        action: impl FnOnce(&mut Inner) -> Result<(), String>,
+        step: impl FnOnce(&mut History, &mut Model, &Live) -> Result<bool, String>,
     ) -> Result<Snapshot, String> {
         let mut inner = self.inner.lock().unwrap();
-        action(&mut inner)?;
-        store::save(&self.dir.join(TOPICS), &inner.model.topics)?;
-        store::save(&self.dir.join(SETTINGS), &inner.model.settings)?;
+        let Inner {
+            model,
+            history,
+            live,
+            ..
+        } = &mut *inner;
+        if step(history, model, live)? {
+            store::save(&self.dir.join(TOPICS), &model.topics)?;
+            store::save(&self.dir.join(SETTINGS), &model.settings)?;
+        }
         Ok(Snapshot::of(&inner))
     }
 
-    /// Performs the change `action` builds, as the action it names.
-    fn change(
+    /// Performs the action `act` builds from the model and what was last read from
+    /// outside; an action of `None` changes nothing.
+    fn perform<A: Into<Option<Action>>>(
         &self,
-        action: impl FnOnce(&mut Model) -> Result<(String, Change), String>,
+        act: impl FnOnce(&mut Model, &Live) -> Result<A, String>,
     ) -> Result<Snapshot, String> {
-        self.update(|inner| {
-            let (label, change) = action(&mut inner.model)?;
-            inner.history.perform(&mut inner.model, label, change)
-        })
-    }
-
-    /// Changes topic `id` through `action`, which returns the action's label.
-    fn edit(
-        &self,
-        id: u64,
-        action: impl FnOnce(&mut Topic, &mut Model) -> Result<String, String>,
-    ) -> Result<Snapshot, String> {
-        self.change(|model| {
-            let mut topic = model.topic(id)?.clone();
-            let label = action(&mut topic, model)?;
-            Ok((label, Change::put(topic)))
+        self.update(|history, model, live| {
+            let Some(Action { label, change }) = act(model, live)?.into() else {
+                return Ok(false);
+            };
+            history.perform(model, label, change)?;
+            Ok(true)
         })
     }
 }
@@ -151,26 +146,6 @@ impl Snapshot {
     }
 }
 
-fn new_topic(model: &mut Model, title: String, slot: Slot) -> Topic {
-    Topic {
-        id: model.take_id(),
-        session: model::session_name(&title),
-        folder: model.settings.folder.clone(),
-        title,
-        slot,
-        stage: Stage::Queued,
-        created_at: now(),
-        started_at: None,
-        finished_at: None,
-        steps: vec![],
-        notes: vec![],
-        links: vec![],
-        blocks: vec![],
-        reworks: vec![],
-        initiative: None,
-    }
-}
-
 #[tauri::command]
 fn snapshot(app: State<App>) -> Snapshot {
     Snapshot::of(&app.inner.lock().unwrap())
@@ -185,249 +160,83 @@ fn create_topic(
     slot: Slot,
     activate: bool,
 ) -> Result<Snapshot, String> {
-    let title = required(title, "a title")?;
-    app.change(|model| {
-        let topic = new_topic(model, title.clone(), slot);
-        let label = format!("Add “{title}”");
-        if activate {
-            let changes = model.activation(topic, now());
-            return Ok((label, Change::Batch(changes)));
-        }
-        Ok((label, Change::put(topic)))
-    })
+    app.perform(|model, _| actions::create_topic(model, now(), title, slot, activate))
 }
 
 /// Makes a topic of the backlog's Linear issue `key` and puts it in `slot`.
 #[tauri::command]
 fn topic_from_issue(app: State<App>, key: &str, slot: Slot) -> Result<Snapshot, String> {
-    app.update(
-        |Inner {
-             model,
-             history,
-             live,
-             ..
-         }| {
-            let issue = live
-                .assigned
-                .iter()
-                .chain(&live.sub_issues)
-                .find(|i| i.key == key)
-                .ok_or_else(|| format!("no issue {key}"))?;
-            let mut topic = new_topic(model, issue.title.clone(), slot);
-            topic.links.push(Link {
-                id: model.take_id(),
-                url: issue.url.clone(),
-                kind: links::Kind::LinearIssue,
-            });
-            topic.initiative = issue.initiatives.first().cloned();
-            let changes = model.activation(topic, now());
-            history.perform(model, format!("Focus on {key}"), Change::Batch(changes))
-        },
-    )
+    app.perform(|model, live| actions::topic_from_issue(model, now(), live, key, slot))
 }
 
 #[tauri::command]
 fn rename(app: State<App>, id: u64, title: &str) -> Result<Snapshot, String> {
-    let title = required(title, "a title")?;
-    app.edit(id, |topic, _| {
-        let label = format!("Rename “{}”", topic.title);
-        topic.title = title;
-        Ok(label)
-    })
+    app.perform(|model, _| actions::rename(model, id, title))
 }
 
-/// Moves a topic to another slot. An active topic stays active there, parking the one it
-/// replaces.
 #[tauri::command]
 fn move_topic(app: State<App>, id: u64, slot: Slot) -> Result<Snapshot, String> {
-    app.change(|model| {
-        let mut topic = model.topic(id)?.clone();
-        let label = format!("Move “{}” to {}", topic.title, slot.label());
-        let active = topic.stage == Stage::Active;
-        topic.slot = slot;
-        if active {
-            return Ok((label, Change::Batch(model.activation(topic, now()))));
-        }
-        Ok((label, Change::put(topic)))
-    })
+    app.perform(|model, _| actions::move_topic(model, now(), id, slot))
 }
 
-/// Puts a topic in its slot, parking the one there; a done topic comes back as rework.
 #[tauri::command]
 fn activate(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.change(|model| {
-        let mut topic = model.topic(id)?.clone();
-        let label = format!("Focus on “{}”", topic.title);
-        if topic.stage == Stage::Done {
-            topic.reworks.push(Rework {
-                id: model.take_id(),
-                reason: "Reopened".into(),
-                at: now(),
-            });
-        }
-        Ok((label, Change::Batch(model.activation(topic, now()))))
-    })
+    app.perform(|model, _| actions::activate(model, now(), id))
 }
 
 #[tauri::command]
 fn park(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.edit(id, |topic, _| {
-        topic.stage = Stage::Queued;
-        Ok(format!("Park “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::park(model, id))
 }
 
 #[tauri::command]
 fn finish(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.edit(id, |topic, _| {
-        let now = now();
-        topic.stage = Stage::Done;
-        topic.started_at.get_or_insert(now);
-        topic.finished_at = Some(now);
-        if let Some(block) = topic.open_block() {
-            block.until = Some(now);
-        }
-        Ok(format!("Finish “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::finish(model, now(), id))
 }
 
-/// Records work that came back; a done topic is reopened in its slot.
 #[tauri::command]
 fn rework(app: State<App>, id: u64, reason: &str) -> Result<Snapshot, String> {
-    let reason = required(reason, "a reason")?;
-    app.change(|model| {
-        let mut topic = model.topic(id)?.clone();
-        topic.reworks.push(Rework {
-            id: model.take_id(),
-            reason,
-            at: now(),
-        });
-        let label = format!("Rework on “{}”", topic.title);
-        if topic.stage == Stage::Done {
-            return Ok((label, Change::Batch(model.activation(topic, now()))));
-        }
-        Ok((label, Change::put(topic)))
-    })
+    app.perform(|model, _| actions::rework(model, now(), id, reason))
 }
 
 #[tauri::command]
 fn block(app: State<App>, id: u64, reason: &str) -> Result<Snapshot, String> {
-    let reason = required(reason, "a reason")?;
-    app.edit(id, |topic, model| {
-        if topic.is_blocked() {
-            return Err("already blocked".into());
-        }
-        topic.blocks.push(Block {
-            id: model.take_id(),
-            reason,
-            since: now(),
-            until: None,
-        });
-        Ok(format!("Block “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::block(model, now(), id, reason))
 }
 
 #[tauri::command]
 fn unblock(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.edit(id, |topic, _| {
-        let block = topic.open_block().ok_or("not blocked")?;
-        block.until = Some(now());
-        Ok(format!("Unblock “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::unblock(model, now(), id))
 }
 
 #[tauri::command]
 fn add_step(app: State<App>, id: u64, text: &str) -> Result<Snapshot, String> {
-    let text = required(text, "a step")?;
-    app.edit(id, |topic, model| {
-        topic.steps.push(Step {
-            id: model.take_id(),
-            text: text.clone(),
-            done_at: None,
-        });
-        Ok(format!("Add step “{text}”"))
-    })
+    app.perform(|model, _| actions::add_step(model, id, text))
 }
 
-/// Marks step `part` done, or not done any more.
 #[tauri::command]
 fn toggle_step(app: State<App>, id: u64, part: u64) -> Result<Snapshot, String> {
-    app.edit(id, |topic, _| {
-        let step = topic
-            .steps
-            .iter_mut()
-            .find(|s| s.id == part)
-            .ok_or("no such step")?;
-        let label = if step.done_at.is_some() {
-            format!("Reopen “{}”", step.text)
-        } else {
-            format!("Done “{}”", step.text)
-        };
-        step.done_at = match step.done_at {
-            Some(_) => None,
-            None => Some(now()),
-        };
-        Ok(label)
-    })
+    app.perform(|model, _| actions::toggle_step(model, now(), id, part))
 }
 
-/// Moves step `part` up (`-1`) or down (`1`) among the steps.
 #[tauri::command]
 fn move_step(app: State<App>, id: u64, part: u64, delta: i32) -> Result<Snapshot, String> {
-    app.edit(id, |topic, _| {
-        let from = topic
-            .steps
-            .iter()
-            .position(|s| s.id == part)
-            .ok_or("no such step")?;
-        let to = from
-            .checked_add_signed(delta as isize)
-            .filter(|&i| i < topic.steps.len())
-            .ok_or("no step there")?;
-        topic.steps.swap(from, to);
-        Ok(format!("Move “{}”", topic.steps[to].text))
-    })
+    app.perform(|model, _| actions::move_step(model, id, part, delta))
 }
 
 #[tauri::command]
 fn add_note(app: State<App>, id: u64, text: &str) -> Result<Snapshot, String> {
-    let text = required(text, "a note")?;
-    app.edit(id, |topic, model| {
-        topic.notes.push(Note {
-            id: model.take_id(),
-            text,
-            at: now(),
-        });
-        Ok(format!("Note on “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::add_note(model, now(), id, text))
 }
 
-/// Links an issue, pull request, Slack thread or any page, from its URL or Linear key.
 #[tauri::command]
 fn add_link(app: State<App>, id: u64, text: &str) -> Result<Snapshot, String> {
-    let (url, kind) = links::parse(text).ok_or("not a URL nor a Linear key")?;
-    app.edit(id, |topic, model| {
-        if topic.links.iter().any(|l| l.url == url) {
-            return Err("already linked".into());
-        }
-        topic.links.push(Link {
-            id: model.take_id(),
-            url: url.clone(),
-            kind,
-        });
-        Ok(format!("Link {url}"))
-    })
+    app.perform(|model, _| actions::add_link(model, id, text))
 }
 
-/// Removes a step, note, link, block or rework from topic `id`.
 #[tauri::command]
 fn remove_part(app: State<App>, id: u64, part: u64) -> Result<Snapshot, String> {
-    app.edit(id, |topic, _| {
-        if !topic.remove_part(part) {
-            return Err("nothing to remove".into());
-        }
-        Ok(format!("Remove from “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::remove_part(model, id, part))
 }
 
 #[tauri::command]
@@ -436,71 +245,37 @@ fn set_initiative(
     id: u64,
     initiative: Option<Initiative>,
 ) -> Result<Snapshot, String> {
-    app.edit(id, |topic, _| {
-        let label = match &initiative {
-            Some(i) => format!("Link “{}” to {}", topic.title, i.name),
-            None => format!("Unlink “{}” from its initiative", topic.title),
-        };
-        topic.initiative = initiative;
-        Ok(label)
-    })
+    app.perform(|model, _| actions::set_initiative(model, id, initiative))
 }
 
 #[tauri::command]
 fn set_session(app: State<App>, id: u64, session: &str) -> Result<Snapshot, String> {
-    let session = session.trim().to_owned();
-    if !model::is_session_name(&session) {
-        return Err("a session name is lowercase letters, digits, - and _, 32 at most".into());
-    }
-    app.edit(id, |topic, _| {
-        topic.session = session;
-        Ok(format!("Rename the session of “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::set_session(model, id, session))
 }
 
 #[tauri::command]
 fn set_folder(app: State<App>, id: u64, folder: &str) -> Result<Snapshot, String> {
-    let folder = required(folder, "a folder")?;
-    if !std::path::Path::new(&shell::expand(&folder)).is_dir() {
-        return Err(format!("{folder} is not a folder"));
-    }
-    app.edit(id, |topic, _| {
-        topic.folder = folder;
-        Ok(format!("Change the folder of “{}”", topic.title))
-    })
+    app.perform(|model, _| actions::set_folder(model, id, folder))
 }
 
 #[tauri::command]
 fn remove(app: State<App>, id: u64) -> Result<Snapshot, String> {
-    app.change(|model| {
-        let title = model.topic(id)?.title.clone();
-        let change = Change::Put {
-            id,
-            index: 0,
-            topic: None,
-        };
-        Ok((format!("Delete “{title}”"), change))
-    })
+    app.perform(|model, _| actions::remove(model, id))
 }
 
 #[tauri::command]
 fn set_settings(app: State<App>, settings: Settings) -> Result<Snapshot, String> {
-    app.update(|Inner { model, history, .. }| {
-        if model.settings == settings {
-            return Ok(());
-        }
-        history.perform(model, "Change settings", Change::Settings(settings))
-    })
+    app.perform(|model, _| Ok(actions::set_settings(model, settings)))
 }
 
 #[tauri::command]
 fn undo(app: State<App>) -> Result<Snapshot, String> {
-    app.update(|Inner { model, history, .. }| history.undo(model).map(drop))
+    app.update(|history, model, _| Ok(history.undo(model)?.is_some()))
 }
 
 #[tauri::command]
 fn redo(app: State<App>) -> Result<Snapshot, String> {
-    app.update(|Inner { model, history, .. }| history.redo(model).map(drop))
+    app.update(|history, model, _| Ok(history.redo(model)?.is_some()))
 }
 
 /// The topics whose title matches `query`, best first.
@@ -552,10 +327,9 @@ fn open_url(app: State<App>, url: &str) -> Result<(), String> {
 fn set_linear_key(app: State<App>, key: &str) -> Result<Snapshot, String> {
     linear::set_key(key)?;
     app.refresh_now.store(true, Ordering::Relaxed);
-    app.update(|inner| {
-        inner.has_linear_key = !key.trim().is_empty();
-        Ok(())
-    })
+    let mut inner = app.inner.lock().unwrap();
+    inner.has_linear_key = !key.trim().is_empty();
+    Ok(Snapshot::of(&inner))
 }
 
 /// Reads herdr every `session_seconds`, and Linear and GitHub every `refresh_minutes` or
