@@ -196,10 +196,19 @@ export interface Settings {
   backlog_done: number;
 }
 
+/** An initiative a topic could be linked to; see `suggestions` in src-tauri/src/live.rs. */
+export interface Suggestion {
+  initiative: Initiative;
+  /** One of the topic's linked issues belongs to it. */
+  from_issues: boolean;
+}
+
 export interface Snapshot {
   topics: Topic[];
   /** The flow times of each topic, as `[id, times]` pairs. */
   times: [number, Times][];
+  /** The initiatives each topic could be linked to, theirs first, as `[id, suggestions]` pairs. */
+  suggestions: [number, Suggestion[]][];
   stats: SlotStats[];
   live: Live;
   /** The assigned Linear issues no open topic links to, and their sub-issues. */
@@ -213,6 +222,8 @@ export interface Snapshot {
   undo: string | null;
   /** The label of the action ⌘⇧Z would redo. */
   redo: string | null;
+  /** The topic the command returning this snapshot created; null in every other one. */
+  created: number | null;
 }
 
 export interface Match {
@@ -233,6 +244,7 @@ export const topicFromIssue = (key: string, slot: Slot) => change("topic_from_is
 export const rename = (id: Id, title: string) => change("rename", { id, title });
 export const moveTopic = (id: Id, slot: Slot) => change("move_topic", { id, slot });
 export const activate = (id: Id) => change("activate", { id });
+export const putIn = (id: Id, slot: Slot) => change("put_in", { id, slot });
 export const park = (id: Id) => change("park", { id });
 export const finish = (id: Id) => change("finish", { id });
 export const rework = (id: Id, reason: string) => change("rework", { id, reason });

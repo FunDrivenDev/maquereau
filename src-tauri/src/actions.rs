@@ -18,6 +18,8 @@ use crate::shell;
 pub struct Action {
     pub label: String,
     pub change: Change,
+    /// The topic the action creates, which the front end then shows.
+    pub created: Option<u64>,
 }
 
 impl Action {
@@ -25,6 +27,15 @@ impl Action {
         Self {
             label: label.into(),
             change,
+            created: None,
+        }
+    }
+
+    /// The same action, saying it creates topic `id`.
+    fn creating(self, id: u64) -> Self {
+        Self {
+            created: Some(id),
+            ..self
         }
     }
 }
@@ -60,14 +71,14 @@ pub fn create_topic(
 ) -> Result<Action, String> {
     let title = required(title, "a title")?;
     let topic = model.new_topic(title.clone(), slot, now);
+    let id = topic.id;
     let label = format!("Add “{title}”");
-    if activate {
-        return Ok(Action::new(
-            label,
-            Change::Batch(model.activation(topic, now)),
-        ));
-    }
-    Ok(Action::new(label, Change::put(topic)))
+    let change = if activate {
+        Change::Batch(model.activation(topic, now))
+    } else {
+        Change::put(topic)
+    };
+    Ok(Action::new(label, change).creating(id))
 }
 
 /// Makes the active topic of `slot` from the assigned Linear issue `key`, or one of their
@@ -92,11 +103,9 @@ pub fn topic_from_issue(
         kind: links::Kind::LinearIssue,
     });
     topic.initiative = issue.initiatives.first().cloned();
+    let id = topic.id;
     let changes = model.activation(topic, now);
-    Ok(Action::new(
-        format!("Focus on {key}"),
-        Change::Batch(changes),
-    ))
+    Ok(Action::new(format!("Focus on {key}"), Change::Batch(changes)).creating(id))
 }
 
 pub fn rename(model: &mut Model, id: u64, title: &str) -> Result<Action, String> {
@@ -126,8 +135,21 @@ pub fn move_topic(model: &mut Model, now: Time, id: u64, slot: Slot) -> Result<A
 
 /// Puts a topic in its slot, parking the one there; a done topic comes back as rework.
 pub fn activate(model: &mut Model, now: Time, id: u64) -> Result<Action, String> {
+    let slot = model.topic(id)?.slot;
+    put_in(model, now, id, slot)
+}
+
+/// Makes a topic the active one of `slot`, moving it there first when it lives in
+/// another: one action, so one undo takes back both the move and the focus. The topic
+/// active in `slot` is parked; a done topic comes back as rework.
+pub fn put_in(model: &mut Model, now: Time, id: u64, slot: Slot) -> Result<Action, String> {
     let mut topic = model.topic(id)?.clone();
-    let label = format!("Focus on “{}”", topic.title);
+    let label = if topic.slot == slot {
+        format!("Focus on “{}”", topic.title)
+    } else {
+        format!("Focus on “{}” in {}", topic.title, slot.label())
+    };
+    topic.slot = slot;
     if topic.stage == Stage::Done {
         topic.reworks.push(Rework {
             id: model.take_id(),
@@ -376,7 +398,7 @@ mod tests {
         history: &mut History,
         action: impl FnOnce(&mut Model) -> Result<Action, String>,
     ) {
-        let Action { label, change } = action(model).unwrap();
+        let Action { label, change, .. } = action(model).unwrap();
         let (topics, settings) = (model.topics.list.clone(), model.settings.clone());
         history.perform(model, label.clone(), change).unwrap();
         let after = model.topics.list.clone();
@@ -398,11 +420,24 @@ mod tests {
             create_topic(&mut model, 5, "  ", Slot::Feature, false),
             Err("a title is needed".into())
         );
-        let action = create_topic(&mut model, 5, " c ", Slot::Feature, true);
-        perform(&mut model, &mut history, |_| action);
+        let action = create_topic(&mut model, 5, " c ", Slot::Feature, true).unwrap();
+        let created = action.created;
+        perform(&mut model, &mut history, |_| Ok(action));
         let c = model.active(Slot::Feature).unwrap();
+        assert_eq!(created, Some(c.id));
         assert_eq!((c.title.as_str(), c.created_at), ("c", 5));
         assert_eq!(c.started_at, Some(5));
+    }
+
+    #[test]
+    fn a_created_topic_is_named_even_when_its_title_is_taken() {
+        let (mut model, mut history) = setup();
+        let action = create_topic(&mut model, 5, "a", Slot::Feature, false).unwrap();
+        let created = action.created.unwrap();
+        perform(&mut model, &mut history, |_| Ok(action));
+        assert_ne!(created, 0);
+        assert_eq!(get(&model, created).title, "a");
+        assert_eq!(get(&model, created).stage, Stage::Queued);
     }
 
     #[test]
@@ -427,9 +462,11 @@ mod tests {
             topic_from_issue(&mut model, 9, &live, "BIM-8", Slot::Feature),
             Err("no issue BIM-8".into())
         );
-        let action = topic_from_issue(&mut model, 9, &live, "BIM-7", Slot::Feature);
-        perform(&mut model, &mut history, |_| action);
+        let action = topic_from_issue(&mut model, 9, &live, "BIM-7", Slot::Feature).unwrap();
+        let created = action.created;
+        perform(&mut model, &mut history, |_| Ok(action));
         let t = model.active(Slot::Feature).unwrap();
+        assert_eq!(created, Some(t.id));
         assert_eq!(t.title, "Export");
         assert_eq!(t.links[0].url, "https://linear.app/i/BIM-7");
         assert_eq!(t.links[0].kind, links::Kind::LinearIssue);
@@ -458,6 +495,37 @@ mod tests {
         });
         assert_eq!(get(&model, 0).stage, Stage::Queued);
         assert_eq!(get(&model, 1).stage, Stage::Active);
+    }
+
+    #[test]
+    fn putting_a_queued_topic_in_another_slot_is_one_undoable_action() {
+        let (mut model, mut history) = setup();
+        perform(&mut model, &mut history, |m| activate(m, 1, 1));
+        perform(&mut model, &mut history, |m| put_in(m, 2, 0, Slot::Tooling));
+        let a = get(&model, 0);
+        assert_eq!(
+            (a.slot, a.stage, a.started_at),
+            (Slot::Tooling, Stage::Active, Some(2))
+        );
+        assert_eq!(get(&model, 1).stage, Stage::Queued);
+        assert_eq!(history.next_undo(), Some("Focus on “a” in Tooling"));
+
+        history.undo(&mut model).unwrap();
+        let a = get(&model, 0);
+        assert_eq!(
+            (a.slot, a.stage, a.started_at),
+            (Slot::Feature, Stage::Queued, None)
+        );
+        assert_eq!(get(&model, 1).stage, Stage::Active);
+        assert_eq!(history.next_undo(), Some("Focus on “b”"));
+    }
+
+    #[test]
+    fn putting_a_topic_in_its_own_slot_activates_it() {
+        let (mut model, mut history) = setup();
+        perform(&mut model, &mut history, |m| put_in(m, 1, 0, Slot::Feature));
+        assert_eq!(history.next_undo(), Some("Focus on “a”"));
+        assert_eq!(model.active(Slot::Feature).map(|t| t.id), Some(0));
     }
 
     #[test]

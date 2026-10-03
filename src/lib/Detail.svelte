@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { slotLabel, type Live, type Times, type Topic } from "./api";
+  import { slotLabel, type Live, type Suggestion, type Times, type Topic } from "./api";
   import {
     ago,
     date,
@@ -14,9 +14,11 @@
   import { reveal } from "./scroll";
 
   // A topic in full: its flow times, session, initiative, and the rows ↵ walks through.
-  let { topic, times, live, now, rows, active, onRow }: {
+  let { topic, times, suggestions, live, now, rows, active, onRow }: {
     topic: Topic;
     times: Times | undefined;
+    /** The initiatives it could be linked to, its issues' first. */
+    suggestions: Suggestion[];
     live: Live;
     now: number;
     rows: Row[];
@@ -29,9 +31,7 @@
 
   const session = $derived(live.sessions[topic.session]);
   const suggested = $derived(
-    topic.initiative
-      ? null
-      : topic.links.flatMap((l) => linkStatus(live, l)?.initiatives ?? [])[0] ?? null,
+    topic.initiative ? null : suggestions.find((s) => s.from_issues)?.initiative ?? null,
   );
   const reworks = $derived(topic.reworks.length);
 

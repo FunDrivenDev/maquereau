@@ -4,7 +4,7 @@
   import { type Initiative, type Issue, type Settings, type Slot, slots, type Snapshot, type Topic } from "./lib/api";
   import { applies, type Command } from "./lib/commands";
   import Detail from "./lib/Detail.svelte";
-  import { ago, isBlocked, linkStatus, linkUrl, nextStep, rows as rowsOf, sessionState, stateMark } from "./lib/format";
+  import { ago, isBlocked, linkUrl, nextStep, rows as rowsOf, sessionState, stateMark } from "./lib/format";
   import Help from "./lib/Help.svelte";
   import IssueView from "./lib/IssueView.svelte";
   import Palette from "./lib/Palette.svelte";
@@ -40,6 +40,7 @@
   let data = $state<Snapshot>({
     topics: [],
     times: [],
+    suggestions: [],
     stats: [],
     live: { links: {}, assigned: [], sub_issues: [], initiatives: [], sessions: {}, refreshed_at: null, errors: [] },
     backlog: [],
@@ -60,6 +61,7 @@
     now: 0,
     undo: null,
     redo: null,
+    created: null,
   });
   let loaded = $state(false);
   let view = $state<View>("focus");
@@ -78,6 +80,7 @@
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   const times = $derived(new Map(data.times));
+  const suggestions = $derived(new Map(data.suggestions));
   const openTopics = $derived(data.topics.filter((t) => t.stage !== "done"));
   const activeOf = (slot: Slot) => data.topics.find((t) => t.slot === slot && t.stage === "active") ?? null;
   const slotOrder = (slot: Slot) => slots.findIndex((s) => s.slot === slot);
@@ -273,7 +276,7 @@
         submit: (title) => {
           const activate = inFocus && !activeOf(slot);
           run(api.createTopic(title, slot, activate), (next) => {
-            const topic = [...next.topics].reverse().find((t) => t.title === title);
+            const topic = next.topics.find((t) => t.id === next.created);
             if (topic) reach(topic);
             return activate ? undoable(next) : `Parked in the backlog · ↵ there puts it in its slot · ⌘Z to undo`;
           });
@@ -293,11 +296,7 @@
   function putIn(slot: Slot) {
     if (selectedIssue) return focusIssue(selectedIssue, slot);
     if (view === "backlog" && selected) {
-      const topic = selected;
-      const moved = topic.slot === slot ? api.activate(topic.id) : api.moveTopic(topic.id, slot);
-      return run(moved, (next) => {
-        const now = next.topics.find((t) => t.id === topic.id);
-        if (now?.stage !== "active") void run(api.activate(topic.id));
+      return run(api.putIn(selected.id, slot), (next) => {
         selectSlot(slot);
         return undoable(next);
       });
@@ -386,14 +385,12 @@
   function pickInitiative() {
     withTopic((topic) => {
       if (!data.has_linear_key) return show("Set a Linear API key first (⌘,)", true);
-      const suggested = topic.links.flatMap((l) => linkStatus(data.live, l)?.initiatives ?? []);
-      const seen = new Set<string>();
-      const options: { label: string; detail?: string; value: Initiative | null }[] = [];
-      for (const i of [...suggested, ...data.live.initiatives]) {
-        if (seen.has(i.id)) continue;
-        seen.add(i.id);
-        options.push({ label: i.name, detail: suggested.includes(i) ? "from its issues" : undefined, value: i });
-      }
+      const options: { label: string; detail?: string; value: Initiative | null }[] = (suggestions.get(topic.id) ?? [])
+        .map(({ initiative, from_issues }) => ({
+          label: initiative.name,
+          detail: from_issues ? "from its issues" : undefined,
+          value: initiative,
+        }));
       if (topic.initiative) options.unshift({ label: "No initiative", value: null });
       if (!options.length) return show("No initiative read from Linear yet · . refreshes", true);
       pickOne(`Initiative of “${topic.title}”`, options, (initiative) => run(api.setInitiative(topic.id, initiative)));
@@ -760,6 +757,7 @@
         <Detail
           topic={selected}
           times={times.get(selected.id)}
+          suggestions={suggestions.get(selected.id) ?? []}
           live={data.live}
           now={data.now}
           rows={detailRows}

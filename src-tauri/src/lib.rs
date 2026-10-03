@@ -87,18 +87,23 @@ impl App {
     }
 
     /// Performs the action `act` builds from the model and what was last read from
-    /// outside; an action of `None` changes nothing.
+    /// outside; an action of `None` changes nothing. The snapshot names the topic the
+    /// action created, if any.
     fn perform<A: Into<Option<Action>>>(
         &self,
         act: impl FnOnce(&mut Model, &Live) -> Result<A, String>,
     ) -> Result<Snapshot, String> {
-        self.update(|history, model, live| {
-            let Some(Action { label, change }) = act(model, live)?.into() else {
+        let mut created = None;
+        let mut snapshot = self.update(|history, model, live| {
+            let Some(action) = act(model, live)?.into() else {
                 return Ok(false);
             };
-            history.perform(model, label, change)?;
+            history.perform(model, action.label, action.change)?;
+            created = action.created;
             Ok(true)
-        })
+        })?;
+        snapshot.created = created;
+        Ok(snapshot)
     }
 }
 
@@ -108,6 +113,8 @@ struct Snapshot {
     topics: Vec<Topic>,
     /// The flow times of each topic, by id.
     times: Vec<(u64, flow::Times)>,
+    /// The initiatives each topic could be linked to, by id.
+    suggestions: Vec<(u64, Vec<live::Suggestion>)>,
     stats: Vec<flow::SlotStats>,
     live: Live,
     /// The assigned Linear issues no open topic links to, and their sub-issues, as a tree.
@@ -121,6 +128,9 @@ struct Snapshot {
     undo: Option<String>,
     /// The label of the action ⌘⇧Z would redo.
     redo: Option<String>,
+    /// The topic the command returning this snapshot created, for the front end to show;
+    /// `None` in every other snapshot.
+    created: Option<u64>,
 }
 
 impl Snapshot {
@@ -136,6 +146,10 @@ impl Snapshot {
         Self {
             topics: topics.clone(),
             times: topics.iter().map(|t| (t.id, flow::times(t, now))).collect(),
+            suggestions: topics
+                .iter()
+                .map(|t| (t.id, live::suggestions(t, &inner.live)))
+                .collect(),
             stats: flow::stats(topics, now, inner.model.settings.stats_days),
             live: inner.live.clone(),
             backlog: backlog::tree(&inner.live.assigned, &inner.live.sub_issues, &linked),
@@ -150,6 +164,7 @@ impl Snapshot {
             now,
             undo: inner.history.next_undo().map(str::to_owned),
             redo: inner.history.next_redo().map(str::to_owned),
+            created: None,
         }
     }
 }
@@ -190,6 +205,12 @@ fn move_topic(app: State<App>, id: u64, slot: Slot) -> Result<Snapshot, String> 
 #[tauri::command]
 fn activate(app: State<App>, id: u64) -> Result<Snapshot, String> {
     app.perform(|model, _| actions::activate(model, now(), id))
+}
+
+/// Makes topic `id` the active topic of `slot`, moving it there first if need be.
+#[tauri::command]
+fn put_in(app: State<App>, id: u64, slot: Slot) -> Result<Snapshot, String> {
+    app.perform(|model, _| actions::put_in(model, now(), id, slot))
 }
 
 #[tauri::command]
@@ -486,6 +507,7 @@ pub fn run() {
             rename,
             move_topic,
             activate,
+            put_in,
             park,
             finish,
             rework,
