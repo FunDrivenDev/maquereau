@@ -293,11 +293,7 @@
   function putIn(slot: Slot) {
     if (selectedIssue) return focusIssue(selectedIssue, slot);
     if (view === "backlog" && selected) {
-      const topic = selected;
-      const moved = topic.slot === slot ? api.activate(topic.id) : api.moveTopic(topic.id, slot);
-      return run(moved, (next) => {
-        const now = next.topics.find((t) => t.id === topic.id);
-        if (now?.stage !== "active") void run(api.activate(topic.id));
+      return run(api.putIn(selected.id, slot), (next) => {
         selectSlot(slot);
         return undoable(next);
       });

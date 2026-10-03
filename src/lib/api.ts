@@ -233,6 +233,7 @@ export const topicFromIssue = (key: string, slot: Slot) => change("topic_from_is
 export const rename = (id: Id, title: string) => change("rename", { id, title });
 export const moveTopic = (id: Id, slot: Slot) => change("move_topic", { id, slot });
 export const activate = (id: Id) => change("activate", { id });
+export const putIn = (id: Id, slot: Slot) => change("put_in", { id, slot });
 export const park = (id: Id) => change("park", { id });
 export const finish = (id: Id) => change("finish", { id });
 export const rework = (id: Id, reason: string) => change("rework", { id, reason });

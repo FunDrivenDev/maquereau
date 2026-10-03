@@ -126,8 +126,21 @@ pub fn move_topic(model: &mut Model, now: Time, id: u64, slot: Slot) -> Result<A
 
 /// Puts a topic in its slot, parking the one there; a done topic comes back as rework.
 pub fn activate(model: &mut Model, now: Time, id: u64) -> Result<Action, String> {
+    let slot = model.topic(id)?.slot;
+    put_in(model, now, id, slot)
+}
+
+/// Makes a topic the active one of `slot`, moving it there first when it lives in
+/// another: one action, so one undo takes back both the move and the focus. The topic
+/// active in `slot` is parked; a done topic comes back as rework.
+pub fn put_in(model: &mut Model, now: Time, id: u64, slot: Slot) -> Result<Action, String> {
     let mut topic = model.topic(id)?.clone();
-    let label = format!("Focus on “{}”", topic.title);
+    let label = if topic.slot == slot {
+        format!("Focus on “{}”", topic.title)
+    } else {
+        format!("Focus on “{}” in {}", topic.title, slot.label())
+    };
+    topic.slot = slot;
     if topic.stage == Stage::Done {
         topic.reworks.push(Rework {
             id: model.take_id(),
@@ -458,6 +471,37 @@ mod tests {
         });
         assert_eq!(get(&model, 0).stage, Stage::Queued);
         assert_eq!(get(&model, 1).stage, Stage::Active);
+    }
+
+    #[test]
+    fn putting_a_queued_topic_in_another_slot_is_one_undoable_action() {
+        let (mut model, mut history) = setup();
+        perform(&mut model, &mut history, |m| activate(m, 1, 1));
+        perform(&mut model, &mut history, |m| put_in(m, 2, 0, Slot::Tooling));
+        let a = get(&model, 0);
+        assert_eq!(
+            (a.slot, a.stage, a.started_at),
+            (Slot::Tooling, Stage::Active, Some(2))
+        );
+        assert_eq!(get(&model, 1).stage, Stage::Queued);
+        assert_eq!(history.next_undo(), Some("Focus on “a” in Tooling"));
+
+        history.undo(&mut model).unwrap();
+        let a = get(&model, 0);
+        assert_eq!(
+            (a.slot, a.stage, a.started_at),
+            (Slot::Feature, Stage::Queued, None)
+        );
+        assert_eq!(get(&model, 1).stage, Stage::Active);
+        assert_eq!(history.next_undo(), Some("Focus on “b”"));
+    }
+
+    #[test]
+    fn putting_a_topic_in_its_own_slot_activates_it() {
+        let (mut model, mut history) = setup();
+        perform(&mut model, &mut history, |m| put_in(m, 1, 0, Slot::Feature));
+        assert_eq!(history.next_undo(), Some("Focus on “a”"));
+        assert_eq!(model.active(Slot::Feature).map(|t| t.id), Some(0));
     }
 
     #[test]

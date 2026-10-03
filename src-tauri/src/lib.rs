@@ -192,6 +192,12 @@ fn activate(app: State<App>, id: u64) -> Result<Snapshot, String> {
     app.perform(|model, _| actions::activate(model, now(), id))
 }
 
+/// Makes topic `id` the active topic of `slot`, moving it there first if need be.
+#[tauri::command]
+fn put_in(app: State<App>, id: u64, slot: Slot) -> Result<Snapshot, String> {
+    app.perform(|model, _| actions::put_in(model, now(), id, slot))
+}
+
 #[tauri::command]
 fn park(app: State<App>, id: u64) -> Result<Snapshot, String> {
     app.perform(|model, _| actions::park(model, id))
@@ -486,6 +492,7 @@ pub fn run() {
             rename,
             move_topic,
             activate,
+            put_in,
             park,
             finish,
             rework,
