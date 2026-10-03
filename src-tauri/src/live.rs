@@ -6,10 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::herdr::Session;
-use crate::links::{self, Kind};
 use crate::model::{Initiative, Stage, Time, Topic};
-use crate::shell::Shell;
-use crate::{github, herdr, linear};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -155,74 +152,8 @@ pub fn suggestions(topic: &Topic, live: &Live) -> Vec<Suggestion> {
 }
 
 /// Topics worth reading about: those not done.
-fn open_topics(topics: &[Topic]) -> impl Iterator<Item = &Topic> {
+pub fn open_topics(topics: &[Topic]) -> impl Iterator<Item = &Topic> {
     topics.iter().filter(|t| t.stage != Stage::Done)
-}
-
-/// Reads Linear and GitHub for the links of the open topics, Raphaël's assigned issues and
-/// the open initiatives. A source that fails keeps what was read before, with its error.
-pub fn read_remote(shell: &Shell, topics: &[Topic], before: &Live, gh_login: &str) -> Live {
-    let mut live = before.clone();
-    live.errors.clear();
-    let key = linear::key();
-    let mut links = BTreeMap::new();
-    for link in open_topics(topics).flat_map(|t| &t.links) {
-        if links.contains_key(&link.url) {
-            continue;
-        }
-        let status = match (link.kind, &key) {
-            (Kind::LinearIssue, Some(key)) => links::key(&link.url)
-                .ok_or_else(|| format!("{}: not a Linear issue", link.url))
-                .and_then(|issue| linear::status(shell, key, &issue)),
-            (Kind::PullRequest | Kind::GithubIssue, _) => {
-                github::status(shell, &link.url, link.kind, gh_login)
-            }
-            _ => continue,
-        };
-        match status {
-            Ok(status) => {
-                links.insert(link.url.clone(), status);
-            }
-            Err(e) => {
-                live.errors.push(e);
-                if let Some(old) = before.links.get(&link.url) {
-                    links.insert(link.url.clone(), old.clone());
-                }
-            }
-        }
-    }
-    live.links = links;
-    match &key {
-        Some(key) => {
-            match linear::assigned(shell, key) {
-                Ok(issues) => live.assigned = issues,
-                Err(e) => live.errors.push(e),
-            }
-            match linear::sub_issues(shell, key) {
-                Ok(issues) => live.sub_issues = issues,
-                Err(e) => live.errors.push(e),
-            }
-            match linear::open_initiatives(shell, key) {
-                Ok(list) => live.initiatives = list,
-                Err(e) => live.errors.push(e),
-            }
-        }
-        None => live
-            .errors
-            .push("Linear: no API key; set one in Settings (⌘,)".into()),
-    }
-    live
-}
-
-/// Reads the herdr session of each open topic.
-pub fn read_sessions(shell: &Shell, topics: &[Topic]) -> BTreeMap<String, Session> {
-    let mut sessions = BTreeMap::new();
-    for topic in open_topics(topics) {
-        if !sessions.contains_key(&topic.session) {
-            sessions.insert(topic.session.clone(), herdr::session(shell, &topic.session));
-        }
-    }
-    sessions
 }
 
 /// What changed from `before` to `after` that Raphaël should hear about: new comments by
@@ -279,13 +210,14 @@ pub fn alerts(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::herdr::Agent;
+    use crate::links::Kind;
     use crate::model::tests::topic;
     use crate::model::{Link, Model, Slot};
 
-    fn status(comments: u32) -> LinkStatus {
+    pub fn status(comments: u32) -> LinkStatus {
         LinkStatus {
             title: "BIM-1 Export".into(),
             state: "In Progress".into(),
@@ -298,7 +230,7 @@ mod tests {
         }
     }
 
-    fn with_agent(status: &str) -> Live {
+    pub fn with_agent(status: &str) -> Live {
         let mut live = Live::default();
         live.sessions.insert(
             "mq-export".into(),

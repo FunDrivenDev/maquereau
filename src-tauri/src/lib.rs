@@ -18,9 +18,11 @@ mod linear;
 mod links;
 mod live;
 mod model;
+mod poll;
 mod search;
 mod settings;
 mod shell;
+mod sources;
 mod store;
 
 use std::path::PathBuf;
@@ -38,6 +40,7 @@ use live::Live;
 use model::{Initiative, Model, Slot, Stage, Time, Topic};
 use settings::Settings;
 use shell::Shell;
+use sources::Sources;
 
 const TOPICS: &str = "topics.json";
 const SETTINGS: &str = "settings.json";
@@ -46,6 +49,8 @@ const LIVE: &str = "live.json";
 struct App {
     dir: PathBuf,
     shell: Shell,
+    /// What is read from outside: Linear, GitHub and herdr.
+    sources: sources::Real,
     inner: Mutex<Inner>,
     /// Set to read Linear and GitHub at the next tick rather than at the next period.
     refresh_now: AtomicBool,
@@ -361,14 +366,12 @@ fn set_linear_key(app: State<App>, key: &str) -> Result<Snapshot, String> {
     Ok(Snapshot::of(&inner))
 }
 
-/// Reads herdr every `session_seconds`, and Linear and GitHub every `refresh_minutes` or
-/// when asked; sends the new snapshot and notifies what changed.
+/// Ticks the poller every second: it reads herdr every `session_seconds`, and Linear and
+/// GitHub every `refresh_minutes` or when asked; what it read is saved and sent as a new
+/// snapshot, and what changed notified.
 fn watch(handle: AppHandle) {
     let app = handle.state::<App>();
-    let mut gh_login = String::new();
-    let mut last_sessions: Option<Instant> = None;
-    let mut last_remote: Option<Instant> = None;
-    let mut first = true;
+    let mut poller = poll::Poller::default();
     loop {
         let (topics, settings, before) = {
             let inner = app.inner.lock().unwrap();
@@ -378,46 +381,22 @@ fn watch(handle: AppHandle) {
                 inner.live.clone(),
             )
         };
-        let due = |last: Option<Instant>, every: u64| {
-            last.is_none_or(|t| t.elapsed() >= Duration::from_secs(every))
-        };
-        let remote = app.refresh_now.swap(false, Ordering::Relaxed)
-            || due(last_remote, u64::from(settings.refresh_minutes.max(1)) * 60);
-        let sessions = remote || due(last_sessions, u64::from(settings.session_seconds.max(5)));
-        if sessions {
-            let mut after = if remote {
-                if gh_login.is_empty() {
-                    gh_login = github::me(&app.shell).unwrap_or_default();
-                }
-                let mut live = live::read_remote(&app.shell, &topics, &before, &gh_login);
-                live.refreshed_at = Some(now());
-                last_remote = Some(Instant::now());
-                live
-            } else {
-                before.clone()
-            };
-            after.sessions = live::read_sessions(&app.shell, &topics);
-            last_sessions = Some(Instant::now());
-            // The first read after launch only sets what later reads compare with: live.json
-            // may be days old.
-            let alerts = if !first {
-                live::alerts(
-                    &topics,
-                    &before,
-                    &after,
-                    settings.notify_comments,
-                    settings.notify_sessions,
-                )
-            } else {
-                vec![]
-            };
-            first = false;
-            for alert in alerts {
+        let refresh_now = app.refresh_now.swap(false, Ordering::Relaxed);
+        let clock = || (Instant::now(), now());
+        if let Some(read) = poller.tick(
+            &app.sources,
+            clock,
+            refresh_now,
+            &topics,
+            &settings,
+            &before,
+        ) {
+            for alert in read.alerts {
                 let _ = app.shell.notify(&alert.title, &alert.body);
             }
             let snapshot = {
                 let mut inner = app.inner.lock().unwrap();
-                inner.live = after;
+                inner.live = read.live;
                 let _ = store::save(&app.dir.join(LIVE), &inner.live);
                 Snapshot::of(&inner)
             };
@@ -477,18 +456,21 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            let shell = Shell::login();
+            let sources = sources::Real::new(shell.clone());
             let model = Model {
                 topics: store::load(&dir.join(TOPICS)),
                 settings: store::load(&dir.join(SETTINGS)),
             };
             app.manage(App {
-                shell: Shell::login(),
+                shell,
                 inner: Mutex::new(Inner {
                     model,
                     history: History::default(),
                     live: store::load(&dir.join(LIVE)),
-                    has_linear_key: linear::key().is_some(),
+                    has_linear_key: sources.linear_key().is_some(),
                 }),
+                sources,
                 dir,
                 refresh_now: AtomicBool::new(false),
             });
