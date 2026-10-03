@@ -91,7 +91,8 @@
     ...data.topics
       .filter((t) => t.stage === "done")
       .sort((a, b) => (b.finished_at ?? 0) - (a.finished_at ?? 0))
-      .slice(0, data.settings.backlog_done)
+      // The selected one stays listed beyond the cap, as when the palette reaches an old topic.
+      .filter((t, i) => i < data.settings.backlog_done || `t${t.id}` === backlogKey)
       .map((topic): BacklogRow => ({ kind: "topic", key: `t${topic.id}`, topic })),
   ]);
   const priorityMark = ["·", "‼", "▮▮▮", "▮▮▯", "▮▯▯"];
