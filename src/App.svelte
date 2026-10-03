@@ -54,6 +54,7 @@
       notify_sessions: true,
       notify_comments: true,
       stats_days: 90,
+      backlog_done: 30,
     },
     has_linear_key: false,
     now: 0,
@@ -90,7 +91,7 @@
     ...data.topics
       .filter((t) => t.stage === "done")
       .sort((a, b) => (b.finished_at ?? 0) - (a.finished_at ?? 0))
-      .slice(0, 30)
+      .slice(0, data.settings.backlog_done)
       .map((topic): BacklogRow => ({ kind: "topic", key: `t${topic.id}`, topic })),
   ]);
   const priorityMark = ["·", "‼", "▮▮▮", "▮▮▯", "▮▯▯"];

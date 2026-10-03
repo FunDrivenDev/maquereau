@@ -193,6 +193,7 @@ export interface Settings {
   notify_sessions: boolean;
   notify_comments: boolean;
   stats_days: number;
+  backlog_done: number;
 }
 
 export interface Snapshot {
