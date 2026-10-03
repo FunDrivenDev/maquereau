@@ -369,6 +369,7 @@ pub fn remove(model: &Model, id: u64) -> Result<Action, String> {
 
 /// Replaces the settings; `None` when they are the same, so nothing is there to undo.
 pub fn set_settings(model: &Model, settings: Settings) -> Option<Action> {
+    let settings = settings.clamped();
     (model.settings != settings).then(|| Action::new("Change settings", Change::Settings(settings)))
 }
 
@@ -379,6 +380,7 @@ mod tests {
     use crate::history::History;
     use crate::live::Issue;
     use crate::model::tests::topic;
+    use crate::settings::BOUNDS;
 
     /// A model and its history, with topics `a` (Feature) and `b` (Tooling) in the
     /// backlog.
@@ -700,5 +702,27 @@ mod tests {
         let action = set_settings(&model, settings.clone()).ok_or(String::new());
         perform(&mut model, &mut history, |_| action);
         assert_eq!(model.settings, settings);
+    }
+
+    #[test]
+    fn settings_out_of_range_are_clamped_and_unchanged_ones_are_not_an_action() {
+        let (mut model, mut history) = setup();
+        let action = set_settings(
+            &model,
+            Settings {
+                search_limit: 0,
+                stats_days: 10_000,
+                ..Settings::default()
+            },
+        )
+        .ok_or(String::new());
+        perform(&mut model, &mut history, |_| action);
+        assert_eq!(model.settings.search_limit, BOUNDS.search_limit.min);
+        assert_eq!(model.settings.stats_days, BOUNDS.stats_days.max);
+        let beyond = Settings {
+            search_limit: 0,
+            ..model.settings.clone()
+        };
+        assert_eq!(set_settings(&model, beyond), None);
     }
 }

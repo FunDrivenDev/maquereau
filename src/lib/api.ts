@@ -203,6 +203,18 @@ export interface Suggestion {
   from_issues: boolean;
 }
 
+/** The range a number setting may take, both ends included. */
+export interface Range {
+  min: number;
+  max: number;
+}
+
+/** The range of each number setting, from `BOUNDS` in src-tauri/src/settings.rs. */
+export type Bounds = Record<
+  "search_limit" | "refresh_minutes" | "session_seconds" | "stats_days" | "backlog_done",
+  Range
+>;
+
 export interface Snapshot {
   topics: Topic[];
   /** The flow times of each topic, as `[id, times]` pairs. */
@@ -216,6 +228,7 @@ export interface Snapshot {
   /** The queued topics plus the open issues assigned to Raphaël that no open topic links. */
   backlog_count: number;
   settings: Settings;
+  bounds: Bounds;
   has_linear_key: boolean;
   now: Time;
   /** The label of the action ⌘Z would undo. */

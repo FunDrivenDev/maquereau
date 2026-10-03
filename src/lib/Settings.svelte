@@ -1,15 +1,17 @@
 <script lang="ts">
   import * as api from "./api";
-  import type { Settings } from "./api";
+  import type { Bounds, Settings } from "./api";
   import Highlight from "./Highlight.svelte";
   import { listStep } from "./keys";
   import { reveal } from "./scroll";
 
   // Every setting of the app, opened with ⌘,. A new setting needs its field in
   // src-tauri/src/settings.rs and its entry in `fields` below; nothing else configures the app.
+  // A number's range comes from Rust (`bounds`), which clamps it too; only its step is here.
   // The Linear API key is kept in the keychain, not in `settings`: its field only asks for it.
-  let { settings, hasLinearKey, onChange, onEdit, onLinearKey, onClose }: {
+  let { settings, bounds, hasLinearKey, onChange, onEdit, onLinearKey, onClose }: {
     settings: Settings;
+    bounds: Bounds;
     hasLinearKey: boolean;
     onChange: (settings: Settings) => void;
     /** Asks for a new value of a text setting. */
@@ -22,7 +24,7 @@
     & { key: keyof Settings | "linear_key"; label: string; description: string }
     & (
       | { kind: "choice"; options: { value: string; label: string }[] }
-      | { kind: "number"; min: number; max: number; step: number }
+      | { kind: "number"; key: keyof Bounds; step: number }
       | { kind: "toggle" }
       | { kind: "text" }
       | { kind: "action"; run: () => void }
@@ -68,8 +70,6 @@
       label: "Linear and GitHub refresh",
       description: "Minutes between two reads of the linked issues and pull requests.",
       kind: "number",
-      min: 1,
-      max: 60,
       step: 1,
     },
     {
@@ -77,8 +77,6 @@
       label: "Session refresh",
       description: "Seconds between two reads of the herdr sessions.",
       kind: "number",
-      min: 5,
-      max: 120,
       step: 5,
     },
     {
@@ -98,8 +96,6 @@
       label: "Flow stats window",
       description: "How many days of done topics the flow stats count.",
       kind: "number",
-      min: 7,
-      max: 365,
       step: 7,
     },
     {
@@ -107,8 +103,6 @@
       label: "Done topics in the backlog",
       description: "How many done topics the backlog lists, the most recently finished first.",
       kind: "number",
-      min: 0,
-      max: 500,
       step: 10,
     },
     {
@@ -116,8 +110,6 @@
       label: "Search results",
       description: "How many results a search shows at most.",
       kind: "number",
-      min: 5,
-      max: 500,
       step: 5,
     },
   ];
@@ -178,7 +170,8 @@
       const n = field.options.length;
       next = field.options[(i + delta + n) % n]?.value ?? String(value);
     } else if (field.kind === "number") {
-      next = Math.min(field.max, Math.max(field.min, Number(value) + delta * field.step));
+      const { min, max } = bounds[field.key];
+      next = Math.min(max, Math.max(min, Number(value) + delta * field.step));
     } else {
       return;
     }
